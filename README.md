@@ -67,6 +67,10 @@ Dieses Plugin enthält keinen fremden Code. Es liest:
 
 Die Unwetterzentrale ist wegen ihrer Bedingungen bewusst nicht eingebaut. Lizenz dieses Plugins: MIT.
 
+## Neu in 0.9.3
+
+- **Neu: LoxBerry-Healthcheck.** `bin/healthcheck` meldet nur aus Dateien, ohne Netz, ob die Konfiguration stimmt, Standort und Warnzelle eingetragen sind, der Minutenlauf läuft, Open-Meteo und DWD antworten und die Pflichthaken im MQTT-Gateway V2 gesetzt sind. Standort und Warnzelle stehen nie in der Antwort.
+
 ## Neu in 0.9.2
 
 Korrekturen nach einer Fremdprüfung des Codes, dazu ein neues Symbol. Am Gerät nicht gemessen.

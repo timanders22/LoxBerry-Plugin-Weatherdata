@@ -637,6 +637,49 @@ function wd_gateway_fassung()
     return (is_array($d) && isset($d['Mqtt']['Gatewayversion'])) ? (int) $d['Mqtt']['Gatewayversion'] : 0;
 }
 
+/**
+ * Fuer bin/healthcheck: array(Status, Text). 3 Fehler, 4 Warnung, 5 in Ordnung, 6 Hinweis. Nur lesen, deshalb nicht wd_config():
+ * die heilt aus der Zweitschrift. Die Texte nennen weder Standort noch Warnzelle noch Adressen.
+ */
+function wd_gesundheit($jetzt = null)
+{
+    $jetzt = $jetzt === null ? time() : (int) $jetzt;
+    $p = wd_paths();
+    if ($p['lbhome'] === '') {
+        return array(3, wd_t('GESUND.KEINE_WURZEL'));
+    }
+    $m = $p['datadir'] . '.upgrade_laeuft';
+    if (is_file($m) && $jetzt - (int) @filemtime($m) < 3600) {
+        return array(6, wd_t('GESUND.UPGRADE'));
+    }
+    $c = wd_inhalt_oder_null($p['config']);
+    if ($c === null && is_file($p['config']) && trim((string) @file_get_contents($p['config'])) !== '') {
+        return array(3, wd_t('GESUND.KONFIG'));
+    }
+    $c = (is_array($c) ? $c : array()) + wd_vorgaben();
+    if ((string) $c['lat'] === '' || (string) $c['lon'] === '' || (string) $c['warnzelle'] === '') {
+        return array(6, wd_t('GESUND.STANDORT'));
+    }
+    $st = wd_json_lesen(wd_tmpdir(false) . '/zustand.json');
+    if (!is_array($st) || !isset($st['ts'])) {
+        return array(4, wd_t('GESUND.KEIN_LAUF'));
+    }
+    if ($jetzt - (int) $st['ts'] > 300) {
+        return array(3, sprintf(wd_t('GESUND.ALT'), (int) floor(($jetzt - (int) $st['ts']) / 60)));
+    }
+    $q = isset($st['quellen']) && is_array($st['quellen']) ? $st['quellen'] : array();
+    foreach (array('open_meteo' => 'Open-Meteo', 'dwd' => 'DWD') as $k => $n) {
+        if (!empty($q[$k]['ein']) && empty($q[$k]['ok'])) {
+            return array(4, sprintf(wd_t('GESUND.QUELLE'), $n));
+        }
+    }
+    list($v2) = wd_v2_lage($c);
+    if ($v2 === false) {
+        return array(4, wd_t('GESUND.HAKEN'));
+    }
+    return array(5, wd_t('GESUND.OK'));
+}
+
 function wd_gateway_autostart()
 {
     $g = wd_paths()['general'];
