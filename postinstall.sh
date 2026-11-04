@@ -83,12 +83,21 @@ chmod 600 "$CF" 2>/dev/null
 [ -f "$BK" ] && chmod 600 "$BK" 2>/dev/null
 
 if [ "$UPGRADE" = 1 ] && [ -d "$SICHER" ]; then
-    for F in prog.json warn_dwd.json warn_bs.json ansage_stand.json warn_zaehler.json schwellen.json station_verlauf.json quelle_open_meteo.json quelle_dwd.json quelle_brightsky.json quelle_station.json formmerkwort ansage_regeln.json; do
-        if [ -f "$SICHER/$F" ]; then wd_hinlegen "$SICHER/$F" "$PDATA/$F" || echo "<WARNING> $F liess sich NICHT zurueckstellen; der naechste Lauf holt die Daten neu."; fi
+        OFFEN=0
+    for Q in "$SICHER"/*; do
+        [ -f "$Q" ] || continue
+        F=$(basename "$Q")
+        [ "$F" = "weatherdata.json" ] && continue
+        if ! wd_hinlegen "$Q" "$PDATA/$F"; then
+            OFFEN=1
+            echo "<WARNING> $F liess sich NICHT zurueckstellen; die Update-Sicherung bleibt liegen: $SICHER"
+        fi
     done
     rm -f "/tmp/$PFOLDER/zustand.json" "/tmp/$PFOLDER/mqtt_sig.txt" 2>/dev/null
     wd_traegt_token "$SICHER/weatherdata.json"; SI_RC=$?
-    if [ ! -f "$SICHER/weatherdata.json" ] || cmp -s "$SICHER/weatherdata.json" "$CF" || wd_traegt_token "$CF" || [ "$SI_RC" = 1 ]; then
+    if [ "$OFFEN" != 0 ]; then
+        :
+    elif [ ! -f "$SICHER/weatherdata.json" ] || cmp -s "$SICHER/weatherdata.json" "$CF" || wd_traegt_token "$CF" || [ "$SI_RC" = 1 ]; then
         rm -rf "${SICHER:?}" 2>/dev/null
     else
         echo "<WARNING> Die Konfiguration ist nicht angekommen - die Update-Sicherung bleibt liegen: $SICHER"

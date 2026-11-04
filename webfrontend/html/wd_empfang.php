@@ -5,6 +5,7 @@
  * Nimmt nur bekannte Zahlenfelder; PASSKEY, ID und PASSWORD werden nie gespeichert und nie protokolliert.
  * Gegen eine echte Station nicht gemessen: Ob sie den Token in der Adresse mitschickt, steht im Testplan.
  */
+ini_set('display_errors', '0');
 require_once __DIR__ . '/wd_lib.php';
 header('Content-Type: text/plain; charset=utf-8');
 $wd_c = wd_inhalt_oder_null(wd_paths()['config']);

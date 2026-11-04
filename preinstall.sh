@@ -29,11 +29,11 @@ for ZIEL in "$BASE/config/plugins/$PFOLDER.backup.json" \
     fi
 done
 [ -f "$BASE/config/plugins/$PFOLDER.backup.json.alt" ] && chmod 600 "$BASE/config/plugins/$PFOLDER.backup.json.alt" 2>/dev/null
-for T in state.json mqtt_sig.txt mqtt_beat refresh_letzt; do
+for T in zustand.json mqtt_sig.txt abruf_letzt empfang.json zaehler.txt; do
     rm -f "/tmp/$PFOLDER/$T" 2>/dev/null
 done
 if [ -n "$BEISEITE" ] || [ -n "$FEST" ]; then
-    T="<WARNING> Neuinstallation: Einstellungen und Termine einer frueheren Installation werden NICHT eingespielt."
+    T="<WARNING> Neuinstallation: Einstellungen und Daten einer frueheren Installation werden NICHT eingespielt."
     [ -n "$BEISEITE" ] && T="$T Beiseitegelegt:$BEISEITE (die Deinstallation raeumt sie ab)."
     [ -n "$FEST" ] && T="$T Nicht zu verschieben, bitte von Hand entfernen:$FEST"
     echo "$T"

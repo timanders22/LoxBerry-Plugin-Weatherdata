@@ -653,7 +653,7 @@ function wd_tag(array $c, array $rg, $jetzt)
     };
     $nacht = !empty($rg['nachtruhe']) && function_exists('ansage_nachtruhe') && ansage_nachtruhe($rg, $jetzt);
     $bis = strtotime(date('Y-m-d', $jetzt) . ' ' . (string) $rg['bis']);
-    return array('nacht' => $nacht, 'frueh' => !$nacht && $jetzt >= $bis && $jetzt < $bis + 7200, 'morgen' => $fen((string) $c['morgen_zeit']), 'mittag' => $fen((string) $c['mittag_zeit']),
+    return array('nacht' => $nacht, 'frueh' => !empty($rg['nachtruhe']) && !$nacht && $jetzt >= $bis && $jetzt < $bis + 7200, 'morgen' => $fen((string) $c['morgen_zeit']), 'mittag' => $fen((string) $c['mittag_zeit']),
         'abend' => $fen((string) $c['abend_zeit'], 120), 'letzte' => $fen((string) $c['lueften_letzte'], 10), 'heute' => date('Ymd', $jetzt));
 }
 
@@ -678,10 +678,30 @@ function wd_ansagen(array $st, array $c, $jetzt)
 }
 
 /** Ein Minutenlauf. Jede Aufgabe laeuft getrennt: Ein Fehlschlag einer Quelle stoppt die anderen nicht. */
+/**
+ * Ein Lauf, nie zwei zugleich: Cron, Knopf und Endpunkt teilen die Sperre. Rueckgabe: der Zustand, null wenn schon einer laeuft.
+ * Die Sperre liegt im Datenordner, der fuer Cron und Webserver derselbe ist; 'e', damit ein Kind (Sprachausgabe) sie nicht erbt.
+ */
 function wd_lauf($zwingen = false)
+{
+    $sp = @fopen(wd_datadir() . '/lauf.lock', 'ce');
+    if ($sp === false || !flock($sp, LOCK_EX | LOCK_NB)) {
+        if (is_resource($sp)) { fclose($sp); }
+        return null;
+    }
+    try {
+        return wd_lauf_sperrt($zwingen);
+    } finally {
+        flock($sp, LOCK_UN);
+        fclose($sp);
+    }
+}
+
+function wd_lauf_sperrt($zwingen)
 {
     $jetzt = time();
     $c = wd_config();
+    wd_abo_nachziehen($c);
     if (!empty($c['om_ein'])) { wd_om_holen($c, $jetzt, $zwingen); }
     if (!empty($c['dwd_ein'])) { wd_dwd_holen($c, $jetzt, $zwingen); }
     $d = wd_quelle_lesen('dwd');
@@ -689,7 +709,7 @@ function wd_lauf($zwingen = false)
     if (!empty($c['bs_ein']) && (!$dwd_lebt || $zwingen)) { wd_bs_holen($c, $jetzt, $zwingen); }
     wd_mehr_holen($c, $jetzt, $zwingen);
     list($station) = wd_st_holen($c, $jetzt);
-    if (is_array($station) && date('i', $jetzt) === '00') { wd_bilanz_rechnen($station['temp_c'], $jetzt); }
+    if (is_array($station) && wd_bilanz_faellig($jetzt)) { wd_bilanz_rechnen($station['temp_c'], $jetzt); }
     $st = wd_zustand($c, $station, $jetzt);
     wd_warn_zaehlen($st);
     wd_json_schreiben(wd_tmpdir() . '/zustand.json', $st);

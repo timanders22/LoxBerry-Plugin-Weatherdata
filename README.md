@@ -67,6 +67,23 @@ Dieses Plugin enthält keinen fremden Code. Es liest:
 
 Die Unwetterzentrale ist wegen ihrer Bedingungen bewusst nicht eingebaut. Lizenz dieses Plugins: MIT.
 
+## Neu in 0.9.2
+
+Korrekturen nach einer Fremdprüfung des Codes, dazu ein neues Symbol. Am Gerät nicht gemessen.
+
+- **Update verliert nichts mehr still.** Ließ sich die Update-Sicherung nicht anlegen, lief das Update weiter und löschte die Originale. Jetzt bricht es ab, die bisherige Fassung bleibt installiert. Scheitert das Zurückstellen einer Datei, bleibt die Sicherung liegen.
+- **Die Prognose-Bilanz übersteht ein Update.** Bisher fing die Gewichtung der Quellen nach jedem Update wieder bei null an (14 Tage Vorlauf). Gesichert wird jetzt der ganze Datenordner.
+- **Nie zwei Läufe zugleich.** Der Knopf „Dienste jetzt abfragen“ und `?abruf=1` liefen neben dem Minutenlauf; Warnungen konnten doppelt gezählt und doppelt gesagt werden. Ist ein Lauf aktiv, sagt der Knopf das, der Endpunkt antwortet `429 ERR=LAEUFT`.
+- **Die Bilanz misst, was sie soll.** Sie rechnet nicht mehr nur in Minute 00, ein verspäteter Lauf fiel sonst aus. Jede Frist merkt die Prognose ihres mittleren Vorlaufs (3, 12, 48 Stunden); bisher maß die kurze Frist Minuten statt Stunden. Die Bilanz ändert damit über 30 Tage allmählich ihre Bedeutung.
+- **Sicherung zurückspielen prüft die Sprachausgabe.** Ungültige Werte werden abgewiesen, ein HomePod-Token in der Datei auch, das geltende HomePod-Token bleibt.
+- **Nach einer Beanstandung im Reiter Warnungen** bleiben auch die Eingaben von Sprachausgabe, Regeln und weiteren Zielen stehen.
+- **Protokoll leeren** verlangt einen Haken, prüft den Erfolg und leert auch `cron.err`.
+- **Stufe-3-Warnung morgens:** Ist die Nachtruhe ausgeschaltet, gilt sie zwischen `bis` und zwei Stunden danach nicht mehr als dringend.
+- **Präfix geändert:** Die Abo-Datei für den Rückfall auf Gateway V1 folgt ihm. Maßgeblich bleibt die Hakenliste für MQTT-Gateway V2.
+- **Deinstallation:** Das Thema `fassung` wird zehnmal gelöscht, weil das Gateway Datagramme verliert; das Präfix kommt zur Not aus der Zweitschrift.
+- **Kleineres:** Oberfläche und Endpunkte zeigen keine PHP-Fehler mehr an, das würde Downloads zerstören; ein Listen-Upload führt unter PHP 8 nicht mehr zu HTTP 500; `?status`, `?kachel` und `wetter.php` legen keinen Ordner mehr an; unbekannte Schalter von `wd_takt.php` enden mit Rückgabe 2; `ERR=SCHREIBEN` kommt als 500, `ERR=BREMSE` als 429.
+- **Neues Symbol.**
+
 ## Neu in 0.9.1
 
 Die Warncodes sind gegen die amtlichen Unterlagen des DWD geprüft: Liste der Warncodes (Stand 01.02.2024) und CAP-Profil 2.1.14, deutsch und englisch. Geprüft wurde an den Unterlagen und am Prüfstand, nicht an einer echten CAP-Meldung am Gerät.

@@ -23,6 +23,16 @@ fi
 
 SICHER="$BASE/data/plugins/$PFOLDER.upgrade_sicherung"
 NEU="$SICHER.neu"
+BK="$BASE/config/plugins/$PFOLDER.backup.json"
+
+# purge_installation raeumt den Konfigurations- und den Datenordner danach ab. Was nicht wiederkommt, darf nicht ungesichert bleiben.
+wd_abbruch() {
+    echo "<FAIL> $1"
+    echo "<FAIL> Die Aktualisierung wird abgebrochen; die bisherige Fassung bleibt unveraendert installiert."
+    rm -rf "${NEU:?}" 2>/dev/null
+    rm -f "$MARKE" 2>/dev/null
+    exit 2
+}
 
 wd_traegt_token() {
     [ -s "$1" ] || return 1
@@ -35,8 +45,7 @@ wd_traegt_token() {
 
 rm -rf "${NEU:?}" 2>/dev/null
 if ! mkdir -p "$NEU" 2>/dev/null; then
-    echo "<WARNING> Die Update-Sicherung liess sich nicht anlegen (Platz? Rechte?): $NEU"
-    exit 0
+    wd_abbruch "Die Update-Sicherung liess sich nicht anlegen (Platz? Rechte?): $NEU"
 fi
 chmod 0700 "$NEU" 2>/dev/null
 
@@ -52,25 +61,32 @@ if [ -f "$CF" ]; then
             *) echo "<OK> Konfiguration gesichert (Inhalt ohne php nicht pruefbar)." ;;
         esac
     else
-        echo "<WARNING> Die Konfiguration liess sich NICHT sichern (Platz? Rechte?): $CF"
+        if wd_traegt_token "$BK"; then
+            echo "<WARNING> Die Konfiguration liess sich NICHT sichern (Platz? Rechte?): $CF - die Zweitschrift traegt sie."
+        else
+            wd_abbruch "Die Konfiguration liess sich NICHT sichern (Platz? Rechte?), und es gibt keine brauchbare Zweitschrift: $CF"
+        fi
     fi
 else
     echo "<INFO> Keine Konfiguration vorhanden - nichts zu sichern."
 fi
 
-for F in prog.json warn_dwd.json warn_bs.json ansage_stand.json warn_zaehler.json schwellen.json station_verlauf.json quelle_open_meteo.json quelle_dwd.json quelle_brightsky.json quelle_station.json formmerkwort ansage_regeln.json; do
-    Q="$BASE/data/plugins/$PFOLDER/$F"
+# Der ganze Datenordner: Eine Liste vergass bis 0.9.1 die Prognose-Bilanz (bilanz.json, 14 bis 30 Tage Vorlauf) und andere Merker.
+for Q in "$BASE/data/plugins/$PFOLDER"/*; do
     [ -f "$Q" ] || continue
+    F=$(basename "$Q")
+    case "$F" in einmalmeldung.json|lauf.lock) continue ;; esac
     if cp -p "$Q" "$NEU/$F" 2>/dev/null && cmp -s "$Q" "$NEU/$F"; then
         chmod 0600 "$NEU/$F" 2>/dev/null
     else
         rm -f "$NEU/$F" 2>/dev/null
+        [ "$F" = "bilanz.json" ] && wd_abbruch "Die Prognose-Bilanz liess sich NICHT sichern (Platz? Rechte?): $Q"
         echo "<WARNING> $F liess sich NICHT sichern: $Q"
     fi
 done
 
 rm -rf "${SICHER:?}" 2>/dev/null
 if ! mv "$NEU" "$SICHER" 2>/dev/null; then
-    echo "<WARNING> Die Update-Sicherung liess sich nicht an ihren Platz bringen: $SICHER"
+    wd_abbruch "Die Update-Sicherung liess sich nicht an ihren Platz bringen: $SICHER"
 fi
 exit 0

@@ -4,9 +4,10 @@
  * Alle Variablen tragen wf_: LBWeb::lbheader() setzt Globale des SDK. Handler stehen vor lbheader().
  */
 error_reporting(E_ALL & ~E_DEPRECATED & ~E_NOTICE);
-ini_set('display_errors', '1');
-$wf_kand = array(dirname(dirname(dirname(__DIR__))) . '/html/plugins/' . basename(__DIR__) . '/wd_lib.php', dirname(__DIR__) . '/html/wd_lib.php');
-foreach ($wf_kand as $wf_c) { if (is_file($wf_c)) { require_once $wf_c; break; } }
+ini_set('display_errors', '0');
+// Die Lage entscheidet der eigene Ablageort, nicht die Reihenfolge der Versuche: Aus einem Archiv griffe der erste Kandidat drei Ebenen ueber das Archiv.
+$wf_c = basename(dirname(__DIR__)) === 'plugins' ? dirname(dirname(dirname(__DIR__))) . '/html/plugins/' . basename(__DIR__) . '/wd_lib.php' : dirname(__DIR__) . '/html/wd_lib.php';
+if (is_file($wf_c)) { require_once $wf_c; }
 if (!function_exists('wd_config')) {
     header('Content-Type: text/html; charset=utf-8');
     echo '<h2>Weatherdata</h2><p><b>Die Programmbibliothek wd_lib.php wurde nicht gefunden.</b> Bitte neu installieren; die Konfiguration bleibt dabei erhalten.</p>';
@@ -48,6 +49,7 @@ if (trim((string) $wf_cfg['aktionstoken']) === '') { $wf_hinweise[] = wd_t('WACH
 // ---------- Vorlage: Download, vor jedem HTML ----------
 if ($wf_post && isset($_POST['vorlage'])) {
     list($wf_vn, $wf_vx) = wd_vorlage($wf_cfg);
+    while (ob_get_level() > 0) { @ob_end_clean(); }
     header('Content-Type: application/xml; charset=utf-8');
     header('Content-Disposition: attachment; filename="' . $wf_vn . '"');
     echo $wf_vx;
@@ -62,6 +64,7 @@ if ($wf_post && isset($_POST['wd_sichern'])) {
     if ($wf_alt) { $wf_v = array('_warnung' => sprintf(wd_t('SICH.WARNKOPF'), implode(' ', $wf_alt))) + $wf_v; }
     $wf_js = json_encode($wf_v, JSON_PRETTY_PRINT | JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES);
     if ($wf_js !== false) {
+        while (ob_get_level() > 0) { @ob_end_clean(); }
         header('Content-Type: application/json; charset=utf-8');
         header('Content-Disposition: attachment; filename="weatherdata_einstellungen_' . date('Ymd_His') . '.json"');
         echo $wf_js;
@@ -71,7 +74,7 @@ if ($wf_post && isset($_POST['wd_sichern'])) {
 }
 // ---------- Zurueckspielen ----------
 if ($wf_post && isset($_POST['wd_zurueck'])) {
-    if (!isset($_FILES['wd_sicherung']['tmp_name']) || !@is_uploaded_file($_FILES['wd_sicherung']['tmp_name'])) {
+    if (!isset($_FILES['wd_sicherung']['tmp_name']) || !is_string($_FILES['wd_sicherung']['tmp_name']) || !@is_uploaded_file($_FILES['wd_sicherung']['tmp_name'])) {
         $wf_err = wd_t('SICH.KEINE_DATEI');
     } elseif ((int) $_FILES['wd_sicherung']['size'] > 262144) {
         $wf_err = wd_t('SICH.ZU_GROSS');
@@ -86,6 +89,7 @@ if ($wf_post && isset($_POST['wd_zurueck'])) {
                 $wf_note = sprintf(wd_t('SICH.UEBERNOMMEN'), $wf_e[2]) . ' ' . wd_t('SICH.DIENST');
                 $wf_hinweise = array_merge($wf_hinweise, $wf_e[3]);
                 @unlink(wd_tmpdir() . '/mqtt_sig.txt');
+                wd_abo_nachziehen($wf_e[0]);
             } else {
                 $wf_err = wd_t('SICH.NICHT_ANGEKOMMEN');
             }
@@ -108,15 +112,23 @@ if ($wf_post && (isset($_POST['ansage_test']) || isset($_POST['ansage_test_ziel'
     $wf_tab = 'tab-test';
 }
 if ($wf_post && isset($_POST['abruf'])) {
-    wd_lauf(true);
-    $wf_note = wd_t('MELD.ABRUF');
+    if (wd_lauf(true) === null) { $wf_note_art = 'warn'; $wf_note = wd_t('MELD.ABRUF_LAEUFT'); } else { $wf_note = wd_t('MELD.ABRUF'); }
 }
 if ($wf_post && isset($_POST['zelle_finden'])) {
     $wf_vs = wd_zelle_vorschlag(wd_config());
     if ($wf_vs === null) { $wf_note_art = 'warn'; $wf_note = wd_t('MELD.ZELLE_NICHT'); }
     else { $wf_note = sprintf(wd_t('MELD.ZELLE_VORSCHLAG'), $wf_vs[0], $wf_vs[1]); }
 }
-if ($wf_post && isset($_POST['clearlog'])) { @file_put_contents($wf_p['log'], ''); $wf_note = wd_t('MELD.LOG_LEER'); }
+if ($wf_post && isset($_POST['clearlog'])) {
+    $wf_ce = dirname($wf_p['log']) . '/cron.err';
+    if (empty($_POST['clearlog_ok'])) {
+        $wf_note_art = 'warn'; $wf_note = wd_t('MELD.LOG_HAKEN');
+    } elseif ((is_file($wf_p['log']) && @file_put_contents($wf_p['log'], '') === false) || (is_file($wf_ce) && @file_put_contents($wf_ce, '') === false)) {
+        $wf_err = wd_t('MELD.LOG_FEHL');
+    } else {
+        $wf_note = wd_t('MELD.LOG_LEER');
+    }
+}
 if ($wf_post && isset($_POST['token_neu'])) {
     $wf_c = wd_config();
     $wf_c['aktionstoken'] = bin2hex(random_bytes(12));
@@ -125,7 +137,7 @@ if ($wf_post && isset($_POST['token_neu'])) {
 // ---------- Speichern, je Formular ein Teil der Feldtabelle ----------
 foreach (array('save', 'quellen_save', 'warn_save', 'mqtt_save') as $wf_form) {
     if (!$wf_post || !isset($_POST[$wf_form])) { continue; }
-    $wf_alt = wd_config(); $wf_neu = $wf_alt; $wf_bean = array(); $wf_werte = array();
+    $wf_alt = wd_config(); $wf_neu = $wf_alt; $wf_bean = array(); $wf_werte = array(); $wf_ziele_post = null;
     foreach (wd_felder() as $wf_k => $wf_f) {
         if ($wf_f[0] !== $wf_form) { continue; }
         if ($wf_f[1] === 'h') { $wf_neu[$wf_k] = isset($_POST[$wf_k]) ? 1 : 0; $wf_werte[$wf_k] = $wf_neu[$wf_k] ? '1' : '0'; continue; }
@@ -150,13 +162,24 @@ foreach (array('save', 'quellen_save', 'warn_save', 'mqtt_save') as $wf_form) {
         foreach ($wf_tm as $wf_t) { $wf_fehler[] = $wf_t['text']; }
         foreach ($wf_tb as $wf_t) { $wf_bean[] = $wf_t; }
         foreach ($wf_th as $wf_t) { $wf_hinweise[] = $wf_t['text']; }
+        // X-2: auch Sprachausgabe, Regeln und Ziele reisen zurueck, nie ein Token.
+        foreach (array_merge(ansage_x2_felder(), ansage_regeln_x2_felder()) as $wf_xf) {
+            if (substr($wf_xf, -6) === '_token') { continue; }
+            if ($wf_xf === 'ansage_ruhe_ein') { $wf_werte[$wf_xf] = isset($_POST[$wf_xf]) ? '1' : '0'; continue; }
+            if (isset($_POST[$wf_xf]) && is_string($_POST[$wf_xf]) && strlen($_POST[$wf_xf]) <= 4000) { $wf_werte[$wf_xf] = $_POST[$wf_xf]; }
+        }
+        foreach ($_POST as $wf_xf => $wf_xw) {
+            if (strpos((string) $wf_xf, 'tts_ziel_') !== 0 || !is_array($wf_xw)) { continue; }
+            foreach ($wf_xw as $wf_xn => $wf_xs) { if (is_string($wf_xs) && strlen($wf_xs) <= 200) { $wf_ziele_post[$wf_xf][(int) $wf_xn] = $wf_xs; } }
+        }
     }
     if ($wf_fehler) {
-        $wf_x2neu = array('form' => $wf_form, 'werte' => $wf_werte, 'bean' => array_values(array_unique($wf_bean)));
+        $wf_x2neu = array('form' => $wf_form, 'werte' => $wf_werte, 'bean' => array_values(array_unique($wf_bean)), 'ziele' => $wf_ziele_post);
     } elseif (wd_config_speichern($wf_neu)) {
         $wf_saved = true;
         wd_zweitschrift($wf_neu);
         @unlink(wd_tmpdir() . '/mqtt_sig.txt');
+        if ($wf_form === 'mqtt_save') { wd_abo_nachziehen($wf_neu); }
     } else {
         $wf_err = wd_t('MELD.SPEICHERN_FEHL');
     }
@@ -473,7 +496,7 @@ $wf_hooks = array(
     'm' => function ($n) { return wf_m($n); },
     'c' => function ($n, $g) { global $wf_x2; return (is_array($wf_x2) && ($wf_x2['form'] ?? '') === 'warn_save' && isset($wf_x2['werte'][$n])) ? $wf_x2['werte'][$n] === '1' : (bool) $g; },
 );
-echo ansage_formular_html($wf_cfg['tts'], $wf_hooks + array('modi' => wd_ansage_modi(), 'ziele' => true, 'ziele_post' => null), wd_ansage_k());
+echo ansage_formular_html($wf_cfg['tts'], $wf_hooks + array('modi' => wd_ansage_modi(), 'ziele' => true, 'ziele_post' => (is_array($wf_x2) && ($wf_x2['form'] ?? '') === 'warn_save' && isset($wf_x2['ziele']['tts_ziel_art']) && is_array($wf_x2['ziele'])) ? $wf_x2['ziele'] : null), wd_ansage_k());
 echo ansage_regeln_html(wd_ansage_regeln($wf_cfg), array(), array(), $wf_hooks + array('token_vor_ort' => true), wd_ansage_k());
 ?>
 <button data-role="none" class="sm-btn sm-b-aktion" type="submit"><?= wd_e(wd_t('TEXT.SPEICHERN')) ?></button>
@@ -558,7 +581,7 @@ echo ansage_regeln_html(wd_ansage_regeln($wf_cfg), array(), array(), $wf_hooks +
 <?php $wf_ll = is_file($wf_p['log']) ? array_slice(array_reverse(file($wf_p['log'], FILE_IGNORE_NEW_LINES | FILE_SKIP_EMPTY_LINES) ?: array()), 0, 300) : array(); ?>
 <?php if ($wf_ll) { ?><div class="sm-log"><?= wd_e(implode("\n", $wf_ll)) ?></div><?php } else { ?><div class="sm-alert sm-info"><?= wd_e(wd_t('TEXT.LOG_LEER')) ?></div><?php } ?>
 <div class="sm-legende"><span><i class="sm-punkt sm-b-aktion"></i> <?= wd_e(wd_t('LEGENDE.AKTION')) ?></span></div>
-<div class="sm-knopfreihe"><form action="index.php" method="post"><?= wd_fmt() ?><input data-role="none" type="hidden" name="clearlog" value="1"><input data-role="none" type="hidden" name="activetab" value="tab-log"><button data-role="none" class="sm-btn sm-b-aktion" type="submit"><?= wd_e(wd_t('TEXT.K_LOG')) ?></button></form></div>
+<div class="sm-knopfreihe"><form action="index.php" method="post"><?= wd_fmt() ?><label class="sm-small" style="align-self:center;margin-right:10px;"><input data-role="none" type="checkbox" name="clearlog_ok" value="1"> <?= wd_e(wd_t('TEXT.LOG_BESTAETIGEN')) ?></label><input data-role="none" type="hidden" name="clearlog" value="1"><input data-role="none" type="hidden" name="activetab" value="tab-log"><button data-role="none" class="sm-btn sm-b-aktion" type="submit"><?= wd_e(wd_t('TEXT.K_LOG')) ?></button></form></div>
 <?php $wf_ce = dirname($wf_p['log']) . '/cron.err'; if (is_file($wf_ce) && @filesize($wf_ce) > 0) { ?><h3 class="sm-h3">cron.err</h3><div class="sm-log"><?= wd_e(implode("\n", array_slice(file($wf_ce, FILE_IGNORE_NEW_LINES) ?: array(), -100))) ?></div><?php } ?>
 <div class="sm-hinweis"><?= wd_e(wd_t('TEXT.LOG_RAMDISK')) ?></div>
 <?php if (class_exists('LBWeb', false) && method_exists('LBWeb', 'loglist_html')) { echo LBWeb::loglist_html(); } ?>

@@ -167,7 +167,13 @@ function wd_prog_holen($c, $jetzt, $zwingen)
 
 function wd_frist($h) { return $h < 6 ? 'f0' : ($h < 24 ? 'f6' : 'f24'); }
 
-/** Merkt je Quelle und kuenftiger Stunde die Temperatur je Frist (0-6, 6-24, 24-72 h). */
+/** Der Vorlauf, fuer den eine Frist steht: ihre Mitte, nicht der letzte Abruf vor ihrem Ende (das maß bei f0 Minuten statt Stunden). */
+function wd_frist_ziel($fr) { return $fr === 'f0' ? 3 : ($fr === 'f6' ? 12 : 48); }
+
+/** Die volle Stunde wird beim ersten Lauf mit Station in ihren ersten 15 Minuten abgerechnet; wd_bilanz_rechnen() streicht sie danach. Spaeter passt die Stationstemperatur nicht mehr zur Stunde. */
+function wd_bilanz_faellig($jetzt) { return $jetzt % 3600 < 900; }
+
+/** Merkt je Quelle und kuenftiger Stunde die Temperatur je Frist (0-6, 6-24, 24-72 h): bis zum Ziel der Frist die neueste Prognose, danach bleibt sie stehen. */
 function wd_bilanz_merken($q, array $std, $jetzt)
 {
     $f = wd_datadir() . '/bilanz_vorrat.json';
@@ -175,7 +181,8 @@ function wd_bilanz_merken($q, array $std, $jetzt)
     foreach ($std as $z) {
         $d = ((int) $z['ts'] - $jetzt) / 3600;
         if ($d < 0 || $d >= 72 || !isset($z['t']) || $z['t'] === null) { continue; }
-        $v[(string) (int) $z['ts']][$q][wd_frist($d)] = round((float) $z['t'], 1);
+        $fr = wd_frist($d);
+        if (!isset($v[(string) (int) $z['ts']][$q][$fr]) || $d >= wd_frist_ziel($fr)) { $v[(string) (int) $z['ts']][$q][$fr] = round((float) $z['t'], 1); }
     }
     foreach (array_keys($v) as $k) { if ((int) $k < $jetzt - 7200) { unset($v[$k]); } }
     wd_json_schreiben($f, $v);

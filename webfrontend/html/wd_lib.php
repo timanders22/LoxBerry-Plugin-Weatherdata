@@ -326,9 +326,15 @@ function wd_json_schreiben($pfad, $d, $modus = 0600)
     return $js === false ? false : wd_datei_schreiben($pfad, $js, $modus);
 }
 
-function wd_tmpdir()
+/** $anlegen = false: nur lesen, die unangemeldeten Endpunkte legen nichts an. */
+function wd_tmpdir($anlegen = true)
 {
     $t = wd_paths()['tmp'];
+    if (!$anlegen) {
+        if (!is_dir($t)) { return $t; }
+        $a = $t . '-' . (function_exists('posix_geteuid') ? (string) posix_geteuid() : 'eigen');
+        return (!function_exists('posix_geteuid') || @fileowner($t) === posix_geteuid() || !is_dir($a)) ? $t : $a;
+    }
     if (!is_dir($t)) { @mkdir($t, 0775, true); }
     clearstatcache(true, $t);
     if (is_dir($t) && is_writable($t) && (!function_exists('posix_geteuid') || @fileowner($t) === posix_geteuid())) { return $t; }
@@ -599,6 +605,19 @@ function wd_mqtt_senden(array $werte, $c)
     return $n;
 }
 
+/** Rueckfall Gateway V1: die Abo-Datei folgt dem Praefix (Regeln/07). Schreibt nur, wenn sie abweicht. */
+function wd_abo_nachziehen($c)
+{
+    $p = wd_paths();
+    if (empty($p['lbhome'])) { return false; }
+    $f = dirname($p['config']) . '/mqtt_subscriptions.cfg';
+    $soll = wd_mqtt_praefix($c) . '/#';
+    if (trim((string) @file_get_contents($f)) === $soll) { return false; }
+    if (!wd_datei_schreiben($f, $soll . "\n", 0644)) { return false; }
+    wd_log('Abo-Datei fuer Gateway V1 auf den Praefix gesetzt.');
+    return true;
+}
+
 /** Hakenliste: Thema, Gateway-Name, Noncached, Retain, Pflicht, Art. Die Reihenfolge ist die der Tabelle. */
 function wd_hakenliste($c = null)
 {
@@ -705,16 +724,16 @@ function wd_sicherung_lesen($roh, $geltend = null)
         }
         if ($k === 'tts') {
             if (!is_array($w)) { $mangel[] = sprintf(wd_t('SICH.WERT'), $k, 'Block'); continue; }
-            foreach (array('alexa_token', 'google_token') as $g) {
-                if (isset($w[$g]) && $w[$g] !== '') { $mangel[] = sprintf(wd_t('SICH.WERT'), 'tts.' . $g, wd_t('SICH.TOKEN')); }
-                unset($w[$g]);
-            }
+            $tm = ansage_sicherung_mangel($w);
+            foreach ($tm as $g) { $mangel[] = sprintf(wd_t('SICH.WERT'), $g, wd_t('SICH.TOKEN')); }
+            if ($tm) { continue; }
+            $g = '';
+            $w = ansage_wert_pruefen(ansage_sicherung_bereinigen($w), $g, wd_ansage_modi());
+            if ($w === null) { $mangel[] = sprintf(wd_t('SICH.WERT'), 'tts', ansage_kennung_text($g, wd_ansage_k())); continue; }
             list($b) = ansage_vervollstaendigen($w, 'musicserver');
             $neu['tts'] = $b;
             if (function_exists('ansage_sicherung_spaet')) { list($neu['tts']) = ansage_sicherung_spaet($neu['tts'], (is_array($geltend) && isset($geltend['tts'])) ? $geltend['tts'] : null); }
-            foreach (array('alexa_token', 'google_token') as $g) {
-                $neu['tts'][$g] = (is_array($geltend) && isset($geltend['tts'][$g]) && ansage_token_ok($geltend['tts'][$g])) ? $geltend['tts'][$g] : '';
-            }
+            $neu['tts'] = ansage_sicherung_tokens_behalten($neu['tts'], (is_array($geltend) && isset($geltend['tts'])) ? $geltend['tts'] : null);
             $n++;
             continue;
         }

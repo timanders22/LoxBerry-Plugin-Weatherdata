@@ -2,10 +2,11 @@
 /**
  * Weatherdata - kleine Seite fuer den Webseiten-Baustein der Loxone-App (Ersatz der W4L-Webseite). Liest nur, nennt keinen Standort, keine Themen-Sammlung.
  */
+ini_set('display_errors', '0');
 require_once __DIR__ . '/wd_lib.php';
 header('Content-Type: text/html; charset=utf-8');
 header('Cache-Control: no-store');
-$wd_s = wd_json_lesen(wd_tmpdir() . '/zustand.json');
+$wd_s = wd_json_lesen(wd_tmpdir(false) . '/zustand.json');
 $wd_k = is_array($wd_s) ? wd_kachel($wd_s) : array('ok' => 0);
 $wd_v = function ($w, $e = '') { return $w === null || $w === '' ? '&ndash;' : wd_e($w) . $e; };
 ?><!doctype html><html lang="de"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><meta http-equiv="refresh" content="300"><title>Weatherdata</title>

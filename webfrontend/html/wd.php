@@ -4,6 +4,7 @@
  * Der unangemeldete Endpunkt legt nichts an: Ohne Konfiguration mit Token lehnt er ab.
  * Der Standort kommt in keiner Antwort vor.
  */
+ini_set('display_errors', '0');
 require_once __DIR__ . '/wd_lib.php';
 header('Content-Type: text/plain; charset=utf-8');
 header('Cache-Control: no-store');
@@ -14,7 +15,7 @@ if (!wd_hat_inhalt($wd_c)) {
     exit;
 }
 if (isset($_GET['status'])) {
-    $wd_s = wd_json_lesen(wd_tmpdir() . '/zustand.json');
+    $wd_s = wd_json_lesen(wd_tmpdir(false) . '/zustand.json');
     if (!is_array($wd_s)) { echo "WD;OK=0;ERR=KEIN_LAUF\n"; exit; }
     printf("WD;OK=1;JETZT_OK=%d;PROG_OK=%d;WARN_OK=%d;STUFE=%s;ALTER=%d\n", !empty($wd_s['jetzt_ok']), !empty($wd_s['prog_ok']), !empty($wd_s['warn_ok']),
         !empty($wd_s['warn_ok']) ? (string) (isset($wd_s['lagen'][0]) ? (int) $wd_s['lagen'][0]['stufe'] : 0) : '-', time() - (int) $wd_s['ts']);
@@ -22,7 +23,7 @@ if (isset($_GET['status'])) {
 }
 if (isset($_GET['kachel'])) {
     header('Content-Type: application/json; charset=utf-8');
-    $wd_s = wd_json_lesen(wd_tmpdir() . '/zustand.json');
+    $wd_s = wd_json_lesen(wd_tmpdir(false) . '/zustand.json');
     echo json_encode(is_array($wd_s) ? wd_kachel($wd_s) : array('ok' => 0), JSON_UNESCAPED_UNICODE);
     exit;
 }
@@ -45,12 +46,26 @@ if (isset($_GET['innen'])) {
         echo "WD;OK=0;ERR=WERT\n";
         exit;
     }
-    echo wd_json_schreiben(wd_datadir() . '/innen.json', array('c' => round((float) $wd_v, 1), 'ts' => time())) ? "WD;OK=1\n" : "WD;OK=0;ERR=SCHREIBEN\n";
+    if (!wd_json_schreiben(wd_datadir() . '/innen.json', array('c' => round((float) $wd_v, 1), 'ts' => time()))) {
+        header('HTTP/1.1 500 Internal Server Error');
+        echo "WD;OK=0;ERR=SCHREIBEN\n";
+        exit;
+    }
+    echo "WD;OK=1\n";
     exit;
 }
 // Abruf: mit Bremse, hoechstens einmal in 5 Minuten
 $wd_f = wd_tmpdir() . '/abruf_letzt';
-if (is_file($wd_f) && time() - (int) @file_get_contents($wd_f) < 300) { echo "WD;OK=0;ERR=BREMSE\n"; exit; }
+if (is_file($wd_f) && time() - (int) @file_get_contents($wd_f) < 300) {
+    header('HTTP/1.1 429 Too Many Requests');
+    echo "WD;OK=0;ERR=BREMSE\n";
+    exit;
+}
 @file_put_contents($wd_f, (string) time());
-wd_lauf(true);
+if (wd_lauf(true) === null) {
+    @unlink($wd_f);       // es lief schon einer; dieser Aufruf hat nichts geholt und verbraucht die Bremse nicht
+    header('HTTP/1.1 429 Too Many Requests');
+    echo "WD;OK=0;ERR=LAEUFT\n";
+    exit;
+}
 echo "WD;OK=1\n";
