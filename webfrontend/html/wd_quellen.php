@@ -168,9 +168,11 @@ function wd_cap_lage($xml, $zelle)
     if (!preg_match('#<info>(.*)</info>#s', $xml, $m)) { return null; }
     $i = preg_replace('#<area>.*</area>#s', '', $m[1]);
     $ein = function ($tag, $q) { return preg_match('#<' . $tag . '>(.*?)</' . $tag . '>#s', $q, $t) ? wd_xml_wert($t[1]) : ''; };
-    $ec = array();
+    $ec = array(); $gruppen = array();
     if (preg_match_all('#<eventCode>\s*<valueName>(.*?)</valueName>\s*<value>(.*?)</value>\s*</eventCode>#s', $i, $t, PREG_SET_ORDER)) {
-        foreach ($t as $x) { $ec[trim($x[1])] = wd_xml_wert($x[2]); }
+        foreach ($t as $x) {
+            if (trim($x[1]) === 'GROUP') { $gruppen[] = wd_xml_wert($x[2]); } else { $ec[trim($x[1])] = wd_xml_wert($x[2]); }
+        }
     }
     $zt = function ($s) { $v = strtotime($s); return $v === false ? 0 : $v; };
     $verw = array();
@@ -180,8 +182,8 @@ function wd_cap_lage($xml, $zelle)
     $art = $ein('event', $i);
     $beginn = $zt($ein('onset', $i));
     return array('id' => $ein('identifier', $xml), 'status' => $ein('status', $xml), 'msg' => $ein('msgType', $xml), 'verweise' => $verw,
-        'ii' => isset($ec['II']) ? (int) $ec['II'] : 0, 'gruppe' => $ec['GROUP'] ?? '', 'art' => $art, 'stufe' => wd_stufe_aus_schwere($ein('severity', $i)),
-        'vorab' => (stripos($art, 'VORABINFORMATION') !== false || stripos($art, 'PRE-WARNING') !== false || strtolower($ein('msgType', $xml)) === 'x') ? 1 : 0,
+        'ii' => wd_ii_zahl($ec['II'] ?? 0), 'gruppe' => $gruppen, 'art' => $art, 'stufe' => wd_stufe_aus_schwere($ein('severity', $i)),
+        'vorab' => (stripos($art, 'VORABINFORMATION') !== false || stripos($art, 'PRE-WARNING') !== false || strtolower($ein('msgType', $xml)) === 'x' || strtolower($ein('urgency', $i)) === 'future') ? 1 : 0,
         'beginn' => $beginn > 0 ? $beginn : $zt($ein('effective', $i)), 'ende' => $zt($ein('expires', $i)),
         'titel' => $ein('headline', $i), 'volltext' => trim($ein('description', $i) . ' ' . $ein('instruction', $i)), 'quelle' => 'dwd');
 }
@@ -242,7 +244,7 @@ function wd_bs_lesen($roh)
         if (!is_array($a)) { continue; }
         $art = (string) ($a['event_de'] ?? '');
         $o[] = array('id' => (string) ($a['alert_id'] ?? ''), 'status' => (string) ($a['status'] ?? 'actual'), 'msg' => 'alert', 'verweise' => array(),
-            'ii' => (int) ($a['event_code'] ?? 0), 'gruppe' => '', 'art' => $art, 'stufe' => wd_stufe_aus_schwere($a['severity'] ?? ''), 'vorab' => stripos($art, 'VORABINFORMATION') !== false ? 1 : 0,
+            'ii' => wd_ii_zahl($a['event_code'] ?? 0), 'gruppe' => '', 'art' => $art, 'stufe' => wd_stufe_aus_schwere($a['severity'] ?? ''), 'vorab' => stripos($art, 'VORABINFORMATION') !== false ? 1 : 0,
             'beginn' => $zt($a['onset'] ?? ($a['effective'] ?? '')), 'ende' => $zt($a['expires'] ?? ''), 'titel' => (string) ($a['headline_de'] ?? ''),
             'volltext' => trim((string) ($a['description_de'] ?? '') . ' ' . (string) ($a['instruction_de'] ?? '')), 'quelle' => 'brightsky');
     }
@@ -630,7 +632,7 @@ function wd_warn_zaehlen(array &$st)
     if (!is_array($d)) { $d = array('n' => 0, 'stand' => array()); }
     $neu = array(); $an = false; $jetzt = (int) $st['ts'];
     foreach ($st['lagen'] as $l) {
-        $k = $l['klasse']; $neu[$k] = (int) $l['stufe'];
+        $k = $l['klasse']; $neu[$k] = max((int) ($neu[$k] ?? 0), (int) $l['stufe']);
         if (!isset($d['stand'][$k]) || (int) $d['stand'][$k] < (int) $l['stufe']) { $an = true; }
     }
     if ($an) { $d['n'] = ((int) $d['n'] + 1) % 1000; }
@@ -762,6 +764,51 @@ function wd_selbsttest()
     $zeile(wd_t('PRUEF.EMPFANG'), is_array($e1) && $nah($e1['temp_c'], 10) && $nah($e1['wind_kmh'], 16.1) && $e1['regnet'] === 0 && wd_empfang_lesen(array('tempf' => 50.0, 'humidity' => 0.0)) === null);
     $nl = wd_warn_regel(array('quelle' => 'nina', 'strom' => 'mow', 'stufe' => 3, 'klasse' => 'sonst'));
     $zeile(wd_t('PRUEF.NINA'), $nl === array('dringend', 'weckt') && wd_warn_regel(array('quelle' => 'nina', 'strom' => 'pol', 'stufe' => 2, 'klasse' => 'sonst')) === array('einmal', 'still'));
+    // Vorabinformation (Profil 3.1.2: amtlich ab Stufe 3) weckt auf keiner Stufe, auch nicht bei einer Klasse mit Weckrecht
+    $vf = array();
+    foreach (array(2, 3, 4) as $vs) { if ($r('gewitter', $vs, 1, 1) !== 'einmal/still') { $vf[] = $vs; } }
+    $zeile(wd_t('PRUEF.VORAB'), !$vf && $r('hitze', 3, 0, 1) === 'tagesplan/nie' && wd_warn_regel(array('quelle' => 'nina', 'strom' => 'mow', 'stufe' => 3, 'klasse' => 'sonst', 'vorab' => 1)) === array('dringend', 'weckt'), $vf ? implode(', ', $vf) : '2, 3, 4');
+    // Vorab erkennen: englische <event> tragen das Wort nicht, urgency=Future schon (Profil, Abschnitt urgency)
+    $capl = function ($ev, $ur, array $gr, $ii = '40') {
+        $g = '';
+        foreach ($gr as $g1) { $g .= '<eventCode><valueName>GROUP</valueName><value>' . $g1 . '</value></eventCode>'; }
+        return wd_cap_lage('<alert><identifier>i</identifier><status>Actual</status><msgType>Alert</msgType><info><event>' . $ev . '</event><urgency>' . $ur . '</urgency><severity>Severe</severity><eventCode><valueName>II</valueName><value>' . $ii . '</value></eventCode>' . $g
+            . '<onset>2026-01-01T10:00:00+01:00</onset><expires>2026-01-01T18:00:00+01:00</expires><area><geocode><valueName>WARNCELLID</valueName><value>123456789</value></geocode></area></info></alert>', '123456789');
+    };
+    $ve = $capl('severe thunderstorms', 'Future', array()); $vw = $capl('severe thunderstorms', 'Immediate', array()); $vd = $capl('VORABINFORMATION SCHWERES GEWITTER', 'Immediate', array());
+    $zeile(wd_t('PRUEF.VORAB_EN'), $ve['vorab'] === 1 && $vw['vorab'] === 0 && $vd['vorab'] === 1);
+    // Vorab klingt nicht wie die Warnung derselben Nummer
+    $vl = array('ii' => 40, 'klasse' => 'gewitter', 'stufe' => 3, 'beginn' => $j, 'ende' => $j + 3600, 'quelle' => 'dwd', 'vorab' => 1);
+    $wl = array('vorab' => 0) + $vl;
+    $sv = wd_warn_satz($vl, $j, 'de'); $sw = wd_warn_satz($wl, $j, 'de'); $se = wd_warn_satz($vl, $j, 'en'); $s65 = wd_warn_satz(array('ii' => 65, 'klasse' => 'regen') + $vl, $j, 'de');
+    $zeile(wd_t('PRUEF.VORAB_NAME'), strpos($sv, 'Vorabinformation schweres Gewitter') === 0 && substr_count($sv, 'Vorabinformation') === 1 && strpos($sw, 'Vorabinformation') === false && strpos($sw, 'Schweres Gewitter mit Orkanböen') === 0
+        && strpos($se, 'Severe weather watch: severe thunderstorms') === 0 && strpos($s65, ' / ') === false && strpos($s65, 'heftiger oder ergiebiger Regen') !== false
+        && wd_warn_name(array('ii' => 33, 'klasse' => 'gewitter', 'vorab' => 1), 'de') === 'Vorabinformation: Starkes Gewitter', $sv);
+    // Eine Vorabinformation verdeckt keine Warnung, weder beim Ordnen noch beim Merken
+    $vr = function ($id, $s, $v) use ($j) { return array('id' => $id, 'status' => 'Actual', 'ii' => 40, 'stufe' => $s, 'beginn' => $j, 'ende' => $j + 3600, 'art' => 'X', 'vorab' => $v, 'quelle' => 'dwd'); };
+    $vo = wd_lagen_ordnen(array($vr('v', 3, 1), $vr('w', 3, 0)), $j); $vo2 = wd_lagen_ordnen(array($vr('v', 4, 1), $vr('w', 3, 0)), $j);
+    $vc = array('ansage_sprache' => 'de', 'a_warn' => 1); $vt = array('nacht' => true, 'heute' => date('Ymd'));
+    $vp = wd_ansage_plan(array('lagen' => array($vo[0] ?? array())), $vc, array('lagen' => array(array('klasse' => 'gewitter', 'stufe' => 3, 'beginn' => $j, 'ende' => $j + 3600, 'vorab' => 1))), $vt, $j);
+    $vg = wd_ansage_gesprochen(array(), array(array('schluessel' => 's', 'lage' => array('klasse' => 'gewitter') + $vr('v', 3, 1))), array('s' => ''), date('Ymd'), $j);
+    $vq = wd_ansage_plan(array('lagen' => array(array('klasse' => 'gewitter') + $vr('v', 3, 1))), $vc, array('lagen' => array()), array('nacht' => false, 'heute' => date('Ymd')), $j);
+    $zeile(wd_t('PRUEF.VORAB_WARN'), count($vo) === 1 && $vo[0]['id'] === 'w' && count($vo2) === 2 && count($vp) === 1 && !empty($vp[0]['dringend']) && strpos($vp[0]['schluessel'], 'vorab') === false && !empty($vg['lagen'][0]['vorab']) && count($vq) === 1 && empty($vq[0]['dringend']) && strpos($vq[0]['schluessel'], 'vorab') !== false);
+    // Amtliche Liste: Nummern und Namen
+    $cd = wd_dwd_codes(); $nm = function ($ii, $sp) use ($cd) { return wd_warn_name(array('ii' => $ii, 'klasse' => $cd[$ii][0] ?? 'sonst'), $sp); };
+    $zeile(wd_t('PRUEF.CODES'), ($cd[86][0] ?? '') === 'glaette' && $nm(86, 'de') === 'Extremes Glatteis' && $nm(76, 'de') === 'Extrem starke Schneeverwehung' && $nm(87, 'de') === 'Markante Glätte' && $nm(84, 'en') === 'Icy surfaces' && $nm(87, 'en') === 'Significant icy surfaces'
+        && !isset($cd[24]) && !isset($cd[77]) && !isset($cd[78]) && ($cd[13] ?? array()) === array('wind', 0) && ($cd[16] ?? array()) === array('wind', 0) && $nm(16, 'de') === 'Schwerer Sturm');
+    // Mehrere Gruppen: die erste zuordenbare gewinnt; Test und Leiterseil zaehlen nicht; ICE und GLAZE stehen nicht im Profil
+    $lg = $capl('X', 'Immediate', array('NEU', 'SNOWDRIFT', 'WIND'), '97');
+    $og = wd_lagen_ordnen(array(array('id' => 't', 'status' => 'Actual', 'ii' => 97, 'gruppe' => array('TEST'), 'stufe' => 3, 'beginn' => $j, 'ende' => $j + 900, 'art' => 'X'), array('id' => 'p', 'status' => 'Actual', 'ii' => 97, 'gruppe' => 'POWERLINEVIBRATION', 'stufe' => 2, 'beginn' => $j, 'ende' => $j + 900, 'art' => 'X')), $j);
+    $kg = true;
+    foreach (array('SLIPPERINESS' => 'glaette', 'BLACK_ICE' => 'glaette', 'RIME_ICE' => 'glaette', 'SNOWDRIFT' => 'schnee', 'HAIL' => 'gewitter', 'TORNADO' => 'gewitter', 'ICE' => 'sonst', 'GLAZE' => 'sonst') as $g2 => $k2) { if (wd_klasse_aus_gruppe($g2) !== $k2) { $kg = false; } }
+    $zeile(wd_t('PRUEF.GRUPPEN'), $lg['gruppe'] === array('NEU', 'SNOWDRIFT', 'WIND') && wd_klasse_aus_gruppe($lg['gruppe']) === 'schnee' && wd_klasse_aus_gruppe('wind') === 'wind' && !$og && $kg);
+    // Unbekannte Nummer: Weckrecht wie bekannte derselben Art
+    $rk = function ($gr, $art = 'X') use ($j) { $o = wd_lagen_ordnen(array(array('id' => 'n', 'status' => 'Actual', 'ii' => 97, 'gruppe' => array($gr), 'stufe' => 3, 'beginn' => $j, 'ende' => $j + 900, 'art' => $art)), $j); return implode('/', wd_warn_regel($o[0])); };
+    $zeile(wd_t('PRUEF.RUECKFALL'), $rk('THUNDERSTORM') === 'dringend/weckt' && $rk('WIND') === 'dringend/weckt' && $rk('RAIN') === 'dringend/weckt' && $rk('RAIN', 'persistent rain') === 'einmal/morgens_dringend' && $rk('SNOWDRIFT') === 'einmal/morgens_dringend' && $rk('SLIPPERINESS') === 'einmal/morgens_dringend');
+    // Der Code muss keine Zahl sein (Profil, Abschnitt eventCode)
+    $lt = $capl('X', 'Immediate', array('THUNDERSTORM'), 'A7'); $l12 = $capl('X', 'Immediate', array('WIND'), '12a');
+    $ot = wd_lagen_ordnen(array(array('status' => 'Actual', 'id' => 'z', 'beginn' => $j, 'ende' => $j + 900) + $lt), $j);
+    $zeile(wd_t('PRUEF.II_TEXT'), $lt['ii'] === 0 && $l12['ii'] === 0 && wd_ii_zahl('52') === 52 && wd_ii_zahl(array()) === 0 && count($ot) === 1 && $ot[0]['klasse'] === 'gewitter' && wd_warn_name($ot[0], 'de') === 'Gewitter');
     // Retain: nur fassung
     $ret = array(); foreach (wd_mqtt_tabelle() as $t => $f) { if ($f[2]) { $ret[] = $t; } }
     $zeile(wd_t('PRUEF.RETAIN'), $ret === array('fassung'), implode(', ', $ret));

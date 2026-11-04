@@ -38,6 +38,10 @@ Ausschalten im Reiter **Warnungen**: Ausgabeart „aus“, oder je Anlass der Ha
 
 Hitze 248 hat technisch Stufe 3, UV 246 und Hitze 247 Stufe 1; die Stufe allein entscheidet deshalb nicht.
 
+Eine Vorabinformation ist amtlich ab Stufe 3 und bleibt trotzdem still: Sie weckt auf keiner Stufe.
+
+Gewitter der Stufe 1 (31, 90) werden nur angezeigt und nie gesprochen; für sie gibt es keinen Haken.
+
 **Lüften:** An einem Hitzetag kommt eine Ansage, sobald es außen um mehr als die eingestellte Spanne kühler ist als innen. Wird es erst in der Nacht kühler, kommt kurz vor der Nachtruhe (ab Werk 21:50) ein Hinweis. Den Innenwert sendet Loxone über `wd.php?innen=`, sonst gilt der Innenfühler der Station. Ohne Innenwert gibt es keine Aussage.
 
 ## Standort und Warnzelle
@@ -62,6 +66,20 @@ Dieses Plugin enthält keinen fremden Code. Es liest:
 - Die Ecowitt-Weiche ist ein eigenes Plugin und bleibt getrennt installiert.
 
 Die Unwetterzentrale ist wegen ihrer Bedingungen bewusst nicht eingebaut. Lizenz dieses Plugins: MIT.
+
+## Neu in 0.9.1
+
+Die Warncodes sind gegen die amtlichen Unterlagen des DWD geprüft: Liste der Warncodes (Stand 01.02.2024) und CAP-Profil 2.1.14, deutsch und englisch. Geprüft wurde an den Unterlagen und am Prüfstand, nicht an einer echten CAP-Meldung am Gerät.
+
+- **Extremes Glatteis (86) fehlte.** Die Ansage sagte nur „Wetterwarnung“. Jetzt mit Klasse Glätte und eigenem Namen.
+- **Vorabinformationen wecken nicht mehr.** Der DWD sendet sie ab Stufe 3; bisher griff darum die Regel für Warnungen und weckte nachts. Jetzt gilt immer: tags einmal, nachts still. Eine Warnung gleicher Klasse wird dadurch nicht verdeckt und bleibt nicht still.
+- **Vorabinformationen klingen nicht mehr wie Warnungen.** Sie tragen eigene Namen, auch wenn die Nummer dieselbe ist, und werden auf Englisch zusätzlich an `urgency=Future` erkannt.
+- **Namen wie in der Liste:** 76 Extrem starke Schneeverwehung, 87 Markante Glätte (bisher „Glatteis“). Alle englischen Namen stammen jetzt aus dem englischen Profil.
+- **Nummern:** 24, 77 und 78 sind entfernt, sie sind nicht amtlich. 11 bis 16 (Küste und Hochsee) sind neu, Klasse Wind, sie wecken nicht.
+- **Unbekannte Nummern:** Es zählen alle Gruppen einer Meldung, die erste zuordenbare gilt; neu sind SLIPPERINESS, BLACK_ICE, RIME_ICE, SNOWDRIFT, HAIL und TORNADO, gestrichen ICE und GLAZE, die im Profil nicht vorkommen. Gruppe TEST und POWERLINEVIBRATION lösen nichts aus. Auf Stufe 3 weckt eine unbekannte Nummer jetzt wie die Tabelle oben. Ein Code, der keine Zahl ist, führt nicht mehr zu einer falschen Nummer.
+- **Warnzähler:** Er zählt je Klasse die höchste Stufe und schlägt bei zwei Lagen einer Klasse nicht mehr in jedem Lauf an.
+
+**Nicht geändert, im Profil widersprüchlich:** 83 steht nur in den Gruppen, 94 nur in der Parametertabelle, beide nicht in der Liste; sie laufen über den Rückfall. 247 heißt in der Liste HITZE und im Profil STARKE HITZE; es bleibt bei „Starke Hitze“.
 
 ## Fassungen
 
