@@ -1,0 +1,55 @@
+#!/bin/bash
+if [ -n "$2" ] && [ "$2" != "weatherdata" ]; then
+    echo "<INFO> Deinstallation von '$2' - dieses Skript gehoert zu 'weatherdata' und tut nichts."
+    exit 0
+fi
+UN_FOLDER="${3:-weatherdata}"
+UN_BASE="${5:-$LBHOMEDIR}"
+case "$UN_FOLDER" in
+    ''|*/*|*..*) echo "<FAIL> Unzulaessiger Ordnername '$UN_FOLDER' - nichts geloescht."; exit 1 ;;
+esac
+if [ -z "$UN_BASE" ] || [ ! -d "$UN_BASE/config/plugins" ] || [ ! -d "$UN_BASE/data/plugins" ] \
+   || [ ! -f "$UN_BASE/config/system/general.json" ]; then
+    echo "<FAIL> '$UN_BASE' sieht nicht wie ein LoxBerry aus (config/plugins, data/plugins und"
+    echo "<FAIL> config/system/general.json muessen dort liegen) - es wurde nichts geloescht."
+    echo "<FAIL> Bitte von Hand nachsehen: config/plugins/$UN_FOLDER.backup.json, data/plugins/$UN_FOLDER.upgrade_*"
+    exit 1
+fi
+# Das einzige zurueckbehaltene Thema (fassung) abraeumen; Praefix aus der Konfiguration, leere Nutzlast loescht es.
+UN_PHP=$(command -v php)
+if [ -n "$UN_PHP" ]; then
+    "$UN_PHP" -r '$c = json_decode((string) @file_get_contents($argv[1]), true); $g = json_decode((string) @file_get_contents($argv[2]), true);
+        $pf = (is_array($c) && isset($c["mqtt_topic"]) && is_string($c["mqtt_topic"]) && preg_match("#^[A-Za-z0-9_/-]+$#", $c["mqtt_topic"])) ? $c["mqtt_topic"] : "weatherdata";
+        $port = is_array($g) && isset($g["Mqtt"]["Udpinport"]) ? (int) $g["Mqtt"]["Udpinport"] : 0;
+        if ($port > 0) { $s = @stream_socket_client("udp://127.0.0.1:" . $port, $e, $t, 1); if ($s) { @fwrite($s, "retain " . $pf . "/fassung "); fclose($s); } }' -- "$UN_BASE/config/plugins/$UN_FOLDER/weatherdata.json" "$UN_BASE/config/system/general.json" 2>/dev/null
+fi
+UID_LB=$(id -u loxberry 2>/dev/null || id -u)
+ZIELE="$UN_BASE/config/plugins/$UN_FOLDER.backup.json
+$UN_BASE/config/plugins/$UN_FOLDER.backup.json.alt
+$UN_BASE/data/plugins/$UN_FOLDER.upgrade_sicherung
+$UN_BASE/data/plugins/$UN_FOLDER.upgrade_sicherung.neu
+$UN_BASE/data/plugins/$UN_FOLDER.upgrade_sicherung.alt
+$UN_BASE/data/plugins/$UN_FOLDER.upgrade_laeuft
+/tmp/$UN_FOLDER
+/tmp/$UN_FOLDER-$UID_LB
+/tmp/$UN_FOLDER-eigen"
+printf '%s\n' "$ZIELE" | while IFS= read -r Z; do
+    [ -n "$Z" ] || continue
+    if [ -e "$Z" ] || [ -L "$Z" ]; then
+        rm -rf "${Z:?}" 2>/dev/null
+    fi
+done
+UEBRIG=""
+while IFS= read -r Z; do
+    [ -n "$Z" ] || continue
+    if [ -e "$Z" ] || [ -L "$Z" ]; then UEBRIG="$UEBRIG $Z"; fi
+done <<EOF_ZIELE
+$ZIELE
+EOF_ZIELE
+if [ -z "$UEBRIG" ]; then
+    echo "<OK> Zweitschrift, Update-Sicherung, beiseitegelegte Staende, Marke und Zwischenordner entfernt (nachgezaehlt: nichts mehr da)."
+    exit 0
+fi
+echo "<FAIL> Es liegen noch Dateien dieses Plugins neben den Plugin-Ordnern - bitte von Hand entfernen (die Zweitschrift traegt das Aktionstoken):"
+for Z in $UEBRIG; do echo "<FAIL>   $Z"; done
+exit 1

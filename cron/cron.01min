@@ -1,0 +1,13 @@
+#!/bin/sh
+# Weatherdata - Minutenlauf. Den bin- und den log-Pfad setzt der Installer ein. Die Fehlerausgabe geht nach cron.err (Regeln/06).
+ERR="REPLACELBPLOGDIR/cron.err"
+mkdir -p "REPLACELBPLOGDIR" 2>/dev/null
+if touch "$ERR" 2>/dev/null && [ -f "$ERR" ] && [ -w "$ERR" ]; then
+    if [ "$(stat -c %s "$ERR" 2>/dev/null || echo 0)" -gt 262144 ]; then
+        tail -n 300 "$ERR" > "$ERR.neu" 2>/dev/null && mv -f "$ERR.neu" "$ERR"
+    fi
+    php "REPLACELBPBINDIR/wd_takt.php" >/dev/null 2>>"$ERR"
+else
+    php "REPLACELBPBINDIR/wd_takt.php" >/dev/null 2>&1
+fi
+exit 0

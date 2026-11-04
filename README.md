@@ -1,0 +1,78 @@
+# LoxBerry-Plugin: Weatherdata
+
+Liefert Wetterwerte, Prognosen, amtliche Warnungen, Handlungssignale und fertige Sätze an Loxone, über das MQTT-Gateway V2. Es braucht weder eine eigene Wetterstation noch einen Schlüssel. Kompatibel mit LoxBerry 3.x und 4.x (reines PHP, 7.4 bis 8.5).
+
+**Zusatzinformation, kein Warnsystem:** Fehlt eine Ansage, heißt das nicht, dass keine Gefahr besteht. NINA und amtliche Warnkanäle ersetzt dieses Plugin nicht.
+
+## Was das Plugin kann
+
+- **Prognose gemischt** aus Open-Meteo, DWD MOSMIX (über Bright Sky) und MET Norway: Tiefst- und Höchstwerte, Regen, Schnee, Böen, Strahlung für 1, 3, 4, 12, 24 und 48 Stunden, Tageswerte für heute und zwei Folgetage. Regeln: Temperatur gewichtet, Tiefstwert der kleinste, Höchstwert und Böe der größte, Regen der Median (dazu `regen_max`), Wettercodes nie gemittelt (führend Open-Meteo). Fällt eine Quelle aus, ändert sich die Gewichtung über 30 Minuten gleitend.
+- **Fehlerbilanz:** je Quelle und Frist (0 bis 6, 6 bis 24, 24 bis 72 Stunden) gegen die eigene Station, 30 Tage. Gewicht 1 durch Fehler im Quadrat, unter 14 Tagen gleich; Bias-Abzug nur als Haken, ab Werk aus. Ohne Station gibt es keine Bilanz, dann gilt gleiches Gewicht.
+- **Umwelt:** DWD-Pollenflug je Teilregion (Hasel, Erle, Esche, Birke, Gräser, Roggen, Beifuß, Ambrosia), Luftindex, Feinstaub, Ozon und NO2 aus CAMS über Open-Meteo (Modellwert, keine Messung), UV. Signal `lueftung_sperren` nur für angehakte Pollenarten.
+- **Radar** über Bright Sky: `radar/regen_in_min`, verdichtet auf den Standort.
+- **Fassade:** höchste Strahlung auf senkrechter Fläche je Ausrichtung (ab Werk aus).
+- **Station auf drei Wegen:** über die Ecowitt-Weiche, direkt (`get_livedata_info`, zwei Adressen) oder per Empfang (Ecowitt- und Wunderground-Protokoll an `wd_empfang.php` mit Token).
+- **Kachelwert und kleine Seite:** `wd.php?kachel=1` als JSON, `wetter.php` für den Webseiten-Baustein der App.
+- **Ab Werk aus, abschaltbar und im Reiter Quellen benannt:** NINA (Nutzungsbedingungen nicht geklärt, Rückfrage beim BBK steht aus; nur Nicht-Wetter-Meldungen, Wortlaut unverändert), Meteoalarm (Bedingungen nicht gelesen; nur für Nutzer außerhalb Deutschlands), OpenWeather, WeatherAPI, Visual Crossing, Tomorrow.io, Meteoblue (je eigener Schlüssel; die Adapter sind nach der Dienstdoku gebaut und ohne Schlüssel nie gegen eine echte Antwort gefahren). Wer einschaltet, klärt die Bedingungen selbst.
+- **Warnungen** vom Deutschen Wetterdienst, je Warnzelle (DWD-CAP). Fällt der DWD aus, springt Bright Sky ein. Warnstufe 0 bis 4 ist die amtliche Schwere. Keine Warnung (0) und nichts bekannt (Strich) sind verschieden.
+- **Ist-Werte**, wahlweise von der eigenen Station über die Ecowitt-Weiche. Fehlt die Station oder ist sie nicht plausibel, gilt der Prognosewert für jetzt, gekennzeichnet mit `jetzt/ist_ersatz`.
+- **Gefühlte Temperatur** immer aus derselben Formel, selbst gerechnet: Windchill und Hitzeindex nach den Formeln des US National Weather Service, sonst Lufttemperatur. Das ist **nicht** die Gefühlte Temperatur des DWD.
+- **Eigene Schwellen** ab Werk 32, 35 und 38 °C, frei änderbar, mit Hysterese; dazu Frost, Sturm, Starkregen und UV. Meldung immer als eigene Rechnung, nie als Hitzewarnung.
+- **Handlungssignale**, getrennt von der Warnstufe: `hitze/warnung`, `kuehlen_moeglich`, `uv/hoch`, `frost/erwartet`, `starkregen/warnung`, `sturm/vorwarnung`. Was daraus wird, entscheidet Loxone.
+- **Sprachansagen** über das gemeinsame Sprachmodul.
+- **Ersatz für Weather4Lox-Werte:** Neue Themen, nichts wird umbenannt; Tabelle im Reiter „Einbindung in Loxone“.
+
+## Sprachansagen sind ab Werk an
+
+Ausschalten im Reiter **Warnungen**: Ausgabeart „aus“, oder je Anlass der Haken. Ein bewusstes Aus bleibt aus. Es gelten Nachtruhe 22 bis 7 Uhr, höchstens eine Ansage je Anlass in 30 Minuten, und der Loxone-Schalter `haus/ansage/ruhe` schaltet auch Dringendes aus.
+
+| Lage | Tag | Nachtruhe |
+|---|---|---|
+| Stufe 1: Windböen, Frost, leichter Schnee, Nebel, Glätte | Nur Anzeige; Haken je Klasse | Still |
+| Stufe 2 | Einmal | Still, morgens nachholen, wenn noch gültig |
+| Vorabinformation Unwetter | Einmal | Still |
+| Stufe 3: Gewitter, orkanartige Böen, Orkan, heftiger Starkregen | Dringend | **Dringend, weckt** |
+| Stufe 3: Glatteis, starker Schneefall, Verwehung, Tauwetter, Dauerregen | Einmal | Still, morgens dringend, wenn noch gültig |
+| Stufe 4 | Dringend | **Dringend, weckt** |
+| Hitze, eigene Hitzeschwellen, UV | Morgens und einmal mittags | Nie |
+
+Hitze 248 hat technisch Stufe 3, UV 246 und Hitze 247 Stufe 1; die Stufe allein entscheidet deshalb nicht.
+
+**Lüften:** An einem Hitzetag kommt eine Ansage, sobald es außen um mehr als die eingestellte Spanne kühler ist als innen. Wird es erst in der Nacht kühler, kommt kurz vor der Nachtruhe (ab Werk 21:50) ein Hinweis. Den Innenwert sendet Loxone über `wd.php?innen=`, sonst gilt der Innenfühler der Station. Ohne Innenwert gibt es keine Aussage.
+
+## Standort und Warnzelle
+
+Beides tragen Sie selbst ein. Die Warnzelle lässt sich aus dem Standort vorschlagen; übernommen wird sie erst, wenn Sie sie eintragen. Der Standort geht gerundet (ab Werk 3 Nachkommastellen) an die eingeschalteten Dienste, ab Werk Open-Meteo, Bright Sky (MOSMIX, Radar) und MET Norway; die Warnzelle an den DWD und im Rückfall an Bright Sky; der Vorschlag der Warnzelle fragt einmal Bright Sky mit dem Standort. Jeder Dienst lässt sich im Reiter Quellen abschalten. Ins Protokoll und in MQTT kommt beides nie, in eine Sicherungsdatei nur als Ihre Einstellung. Warnungen gibt es nur für Deutschland.
+
+## MQTT
+
+Virtuelle Eingänge heißen wie der Gateway-Name; Haken je Thema nach der Hakenliste im Reiter MQTT (Pflicht und wahlweise getrennt). Retained ist nur `fassung`. Keine Aussage ist ein Strich `-`, nie ein leerer Wert und nie der alte Wert; die Logik hängt an den Zahlenthemen `.../ok`. Wie ein Virtueller Eingang den Strich behandelt, bitte an der eigenen Anlage messen.
+
+## Quellen und Lizenzen
+
+Dieses Plugin enthält keinen fremden Code. Es liest:
+
+- [Open-Meteo](https://open-meteo.com/): Wetterdaten, CC BY 4.0. Nicht gewerblich frei; Heimautomation ist in den Bedingungen genannt. Für gewerbliche Nutzung gibt es ein Feld für den eigenen Schlüssel.
+- [Deutscher Wetterdienst](https://www.dwd.de/) (`opendata.dwd.de`): Warnungen, CC BY 4.0, ohne Gewähr und ohne Verfügbarkeitszusage. Der Wortlaut amtlicher Warnungen geht unverändert in `warnung/volltext`, gekürzt auf 900 Zeichen.
+- [Bright Sky](https://brightsky.dev/): aufbereitete DWD-Daten, Einzelbetreiber, keine Zusage.
+- [MET Norway](https://www.met.no/): Locationforecast, CC BY 4.0, Werte verändert (gemischt). Wahrer `User-Agent`, höchstens 4 Nachkommastellen, `Expires` wird beachtet.
+- CAMS (Copernicus Atmosphere Monitoring Service) über Open-Meteo: Luftqualität.
+- DWD Pollenflug-Gefahrenindex `s31fg.json`: CC BY 4.0.
+- Formeln: US National Weather Service (Windchill, Hitzeindex).
+- Die Ecowitt-Weiche ist ein eigenes Plugin und bleibt getrennt installiert.
+
+Die Unwetterzentrale ist wegen ihrer Bedingungen bewusst nicht eingebaut. Lizenz dieses Plugins: MIT.
+
+## Fassungen
+
+### 0.9.0
+
+Erste Fassung mit allen Stufen: Open-Meteo, MOSMIX, MET Norway, Mischung und Bilanz; DWD-CAP mit Rückfall Bright Sky; Pollen, Luft, UV; Radar; Station über Weiche, direkt oder Empfang; eigene gefühlte Temperatur, Schwellen, Signale, Ansagen; Reiter Einstellungen, Werte, Quellen, Warnungen, MQTT, Einbindung in Loxone, Test, Logdateien.
+
+**Nicht enthalten oder nicht belegt:**
+
+- NINA ist ab Werk aus, bis die Erlaubnis geklärt ist. Die Unwetterzentrale ist nicht eingebaut.
+- UBA-Luftdaten, DWD-Biowetter und DWD-UV-Datei sind nicht gebaut (Lizenz offen oder Nutzen gering; UV kommt aus den Prognosen).
+- Die Seite im Musterprojekt mit Bild fehlt; die Tabelle steht im Reiter „Einbindung in Loxone“.
+- Dashboard und Bewässerung lesen den Kachelwert oder die Prognose noch nicht: Das sind andere Plugins.
+- Empfang der Station und die fünf Dienste mit Schlüssel sind gegen keine echte Station und keine echte Antwort gemessen.
