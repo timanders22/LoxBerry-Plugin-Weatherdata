@@ -76,7 +76,7 @@ function wd_om_url($c)
     $key = trim((string) $c['om_apikey']);
     $u = ($key !== '' ? 'https://customer-api.open-meteo.com' : 'https://api.open-meteo.com') . '/v1/forecast?latitude=' . $pos[0] . '&longitude=' . $pos[1]
        . '&timezone=auto&forecast_days=' . (!empty($c['emu_ein']) ? 8 : 7) . '&past_hours=1&wind_speed_unit=kmh'
-       . '&current=temperature_2m,relative_humidity_2m,dew_point_2m,surface_pressure,wind_speed_10m,wind_gusts_10m,wind_direction_10m,precipitation,shortwave_radiation,uv_index,weather_code'
+       . '&current=temperature_2m,relative_humidity_2m,dew_point_2m,surface_pressure,pressure_msl,wind_speed_10m,wind_gusts_10m,wind_direction_10m,precipitation,shortwave_radiation,uv_index,weather_code'
        . '&hourly=temperature_2m,relative_humidity_2m,precipitation,precipitation_probability,snowfall,wind_speed_10m,wind_gusts_10m,shortwave_radiation,uv_index,weather_code' . (!empty($c['emu_ein']) ? ',wind_direction_10m,pressure_msl,cloud_cover_low,cloud_cover_mid,cloud_cover_high' : '')
        . '&daily=temperature_2m_max,temperature_2m_min,weather_code';
     return $key !== '' ? $u . '&apikey=' . rawurlencode($key) : $u;
@@ -104,7 +104,8 @@ function wd_om_lesen($roh)
     $n = function ($k) use ($c) { return (isset($c[$k]) && is_numeric($c[$k])) ? (float) $c[$k] : null; };
     return array('stunden' => $std, 'tage' => $tage, 'jetzt' => array('temp_c' => $n('temperature_2m'), 'rf_pct' => $n('relative_humidity_2m'), 'taupunkt_c' => $n('dew_point_2m'), 'druck_hpa' => $n('surface_pressure'),
         'wind_kmh' => $n('wind_speed_10m'), 'boe_kmh' => $n('wind_gusts_10m'), 'windrichtung_grad' => $n('wind_direction_10m'), 'regen_mmh' => $n('precipitation'), 'strahlung_wm2' => $n('shortwave_radiation'), 'uv' => $n('uv_index'),
-        'regnet' => $n('precipitation') === null ? null : ($n('precipitation') > 0 ? 1 : 0)));
+        'regnet' => $n('precipitation') === null ? null : ($n('precipitation') > 0 ? 1 : 0),
+        'druck_msl_hpa' => $n('pressure_msl')));     // 0.9.8: nur fuer den Vergleich im Reiter Werte (Stationen zeigen meist Meereshoehe)
 }
 
 function wd_om_holen($c, $jetzt, $zwingen = false)
@@ -462,14 +463,20 @@ function wd_zustand(array $c, $station, $jetzt)
     $omd = !empty($q['open_meteo']['ok']) ? wd_json_lesen(wd_datadir() . '/prog.json') : null;
     $st['seite'] = wd_seite_daten($std, (is_array($omd) && isset($omd['stunden']) && is_array($omd['stunden'])) ? $omd['stunden'] : array(), ($st['prog_ok'] && is_array($prog['tage'])) ? $prog['tage'] : array(), $jetzt);
 
-    // Jetzt: Station gewinnt, solange sie plausibel ist; dann Wunderground, dann Loxone (0.9.7); Rueckfall Prognose "jetzt", ausdruecklich gekennzeichnet
+    // Jetzt: Station gewinnt, solange sie plausibel ist; dann Wunderground, dann Loxone (0.9.7); Rueckfall Prognose "jetzt", ausdruecklich gekennzeichnet.
+    // 0.9.8: der Rueckfall JE WERT - erst Open-Meteo-Jetzt (solange Open-Meteo lebt), dann der Mischwert der laufenden Stunde aller lebenden
+    // Vorhersagen (wd_prog_jetzt); bis 0.9.7 blieb ein einzelner fehlender Open-Meteo-Wert leer.
     $jw = array(); $her = array();
-    $om_j = $st['prog_ok'] ? $prog['jetzt'] : array();
+    $om_lebt = $st['prog_ok'] && !empty($q['open_meteo']['ok']);
+    $om_j = $om_lebt ? $prog['jetzt'] : array();
+    $mix_j = $st['prog_ok'] ? wd_prog_jetzt($std, $jetzt) : array();
+    $mix_her = $st['prog_ok'] ? (string) $prog['herkunft'] : 'keine';
     foreach (array('temp_c', 'rf_pct', 'taupunkt_c', 'druck_hpa', 'wind_kmh', 'boe_kmh', 'windrichtung_grad', 'regen_mmh', 'regnet', 'strahlung_wm2', 'uv') as $k) {
         if (is_array($station) && isset($station[$k]) && $station[$k] !== null) { $jw[$k] = $station[$k]; $her[$k] = 'station'; }
         elseif (is_array($wu) && isset($wu[$k]) && $wu[$k] !== null) { $jw[$k] = $wu[$k]; $her[$k] = 'wunderground'; }
         elseif (isset($lox[$k])) { $jw[$k] = $lox[$k]; $her[$k] = 'loxone'; }
-        elseif (isset($om_j[$k]) && $om_j[$k] !== null) { $jw[$k] = $om_j[$k]; $her[$k] = $q['open_meteo']['ok'] ? 'open-meteo' : $prog['herkunft']; }
+        elseif (isset($om_j[$k]) && $om_j[$k] !== null) { $jw[$k] = $om_j[$k]; $her[$k] = 'open-meteo'; }
+        elseif (isset($mix_j[$k]) && $mix_j[$k] !== null) { $jw[$k] = $mix_j[$k]; $her[$k] = $mix_her; }
         else { $jw[$k] = null; $her[$k] = 'keine'; }
     }
     // Taupunkt passt nur zu Temperatur und Feuchte derselben Herkunft; kommt eins davon von Loxone, wird er gerechnet.
@@ -477,8 +484,19 @@ function wd_zustand(array $c, $station, $jetzt)
     if ($jw['taupunkt_c'] === null && $jw['temp_c'] !== null && $jw['rf_pct'] !== null) { $jw['taupunkt_c'] = wd_taupunkt($jw['temp_c'], $jw['rf_pct']); $her['taupunkt_c'] = 'rechnung'; }
     $st['jetzt'] = $jw; $st['herkunft'] = $her;
     // 0.9.7: nur zur Anzeige im Reiter Werte (Vergleich eigene Messung gegen Wetterdienst); keine Logik haengt daran, kein MQTT-Thema.
-    $st['dienst'] = array(); foreach (array_keys($jw) as $k) { $st['dienst'][$k] = (isset($om_j[$k]) && is_numeric($om_j[$k])) ? (float) $om_j[$k] : null; }
-    $st['dienst_her'] = $st['prog_ok'] ? ($q['open_meteo']['ok'] ? 'open-meteo' : (string) $prog['herkunft']) : 'keine';
+    // 0.9.8: verglichen wird mit dem Mischwert der laufenden Stunde aller lebenden Vorhersagen (bei mehreren Diensten aussagekraeftiger als
+    // einer). Was die Mischung nicht kennt (Taupunkt, Druck, Windrichtung), kommt von Open-Meteo-Jetzt und steht in dienst_om (Fussnote);
+    // der Druck als pressure_msl (Meereshoehe), dann darf er markiert werden (dienst_druck_msl).
+    $st['dienst'] = array(); $st['dienst_om'] = array(); $st['dienst_druck_msl'] = 0;
+    foreach (array_keys($jw) as $k) {
+        $m = (isset($mix_j[$k]) && is_numeric($mix_j[$k])) ? (float) $mix_j[$k] : null;
+        $o = $k === 'druck_hpa' ? ((isset($om_j['druck_msl_hpa']) && is_numeric($om_j['druck_msl_hpa'])) ? (float) $om_j['druck_msl_hpa'] : null)
+            : ((isset($om_j[$k]) && is_numeric($om_j[$k])) ? (float) $om_j[$k] : null);
+        if ($m !== null && $k !== 'druck_hpa') { $st['dienst'][$k] = $m; }
+        elseif ($o !== null) { $st['dienst'][$k] = $o; $st['dienst_om'][] = $k; if ($k === 'druck_hpa') { $st['dienst_druck_msl'] = 1; } }
+        else { $st['dienst'][$k] = null; }
+    }
+    $st['dienst_her'] = $st['prog_ok'] ? $mix_her : 'keine';
     $st['jetzt_ok'] = $jw['temp_c'] !== null;
     $st['ist_ersatz'] = ($st['jetzt_ok'] && !in_array($her['temp_c'], array('station', 'wunderground', 'loxone'), true)) ? 1 : 0;
 
@@ -742,6 +760,8 @@ function wd_lauf_sperrt($zwingen)
     $voll = $sig !== $alt[0] || $jetzt - (int) ($alt[1] ?? 0) >= 300;
     wd_mqtt_senden($voll ? $werte : array_intersect_key($werte, array('status/ok' => 1, 'status/ts' => 1, 'status/zaehler' => 1)), $c);
     if ($voll) { @file_put_contents($sf, $sig . '|' . $jetzt); }
+    // 0.9.8: Hausthemen haus/wetter fuer andere Plugins (ab Werk aus); ein Fehler dort haelt die Ansagen nicht auf.
+    try { wd_haus_lauf($st, $c, $werte['status/zaehler']); } catch (Throwable $e) { wd_log_einmal('haus', 'Hausthemen haus/wetter: ' . get_class($e) . ': ' . $e->getMessage()); }
     wd_ansagen($st, $c, $jetzt);
     return $st;
 }
@@ -753,13 +773,15 @@ function wd_selbsttest()
     $zeile = function ($f, $ok, $h = '') use (&$z) { $z[] = array('frage' => $f, 'ok' => $ok, 'hinweis' => $h); };
     $c = wd_config();
     $nah = function ($a, $b, $e = 0.15) { return abs((float) $a - (float) $b) <= $e; };
+    // 0.9.8: Zahlen fuer Laien - eine Nachkommastelle, deutsches Komma (en Punkt), mit Einheit.
+    $zl = function ($w, $einheit = '', $nk = 1) { if ($w === null || !is_numeric($w)) { return '-'; } $s = number_format((float) $w, $nk, wd_sprache() === 'en' ? '.' : ',', ''); return $einheit === '' ? $s : $s . ' ' . $einheit; };
     // Rechnung gegen die veroeffentlichten Tafelwerte
     list($w, $a) = wd_gefuehlt(-1.111, 50, 16.09);
-    $zeile(wd_t('PRUEF.WC'), $a === 'windchill' && $nah($w, -6.1, 0.4), $w . ' C');
+    $zeile(wd_t('PRUEF.WC'), $a === 'windchill' && $nah($w, -6.1, 0.4), sprintf(wd_t('PRUEF.H_GERECHNET'), $zl($w, '°C')));
     list($w, $a) = wd_gefuehlt(32.22, 70, 5);
-    $zeile(wd_t('PRUEF.HI'), $a === 'hitzeindex' && $nah($w, 40.5, 0.7), $w . ' C');
+    $zeile(wd_t('PRUEF.HI'), $a === 'hitzeindex' && $nah($w, 40.5, 0.7), sprintf(wd_t('PRUEF.H_GERECHNET'), $zl($w, '°C')));
     list($w, $a) = wd_gefuehlt(18, 50, 3);
-    $zeile(wd_t('PRUEF.LUFT'), $a === 'luft' && $nah($w, 18), $w . ' C');
+    $zeile(wd_t('PRUEF.LUFT'), $a === 'luft' && $nah($w, 18), sprintf(wd_t('PRUEF.H_GERECHNET'), $zl($w, '°C')));
     // Hysterese
     $zeile(wd_t('PRUEF.HYST'), wd_hysterese(32, 32, 1, 0) === 1 && wd_hysterese(31.5, 32, 1, 1) === 1 && wd_hysterese(31.5, 32, 1, 0) === 0 && wd_hysterese(30.9, 32, 1, 1) === 0 && wd_hysterese(null, 32, 1, 1) === null);
     // Warnregeln
@@ -768,7 +790,7 @@ function wd_selbsttest()
                   array('regen', 3, 1, 0, 'dringend/weckt'), array('regen', 4, 0, 0, 'dringend/weckt'), array('hitze', 3, 0, 0, 'tagesplan/nie'), array('uv', 1, 0, 0, 'tagesplan/nie'));
     $fehl = array();
     foreach ($soll as $s) { if ($r($s[0], $s[1], $s[2], $s[3]) !== $s[4]) { $fehl[] = $s[0] . $s[1]; } }
-    $zeile(wd_t('PRUEF.REGELN'), !$fehl, count($soll) . ' Faelle' . ($fehl ? ': ' . implode(', ', $fehl) : ''));
+    $zeile(wd_t('PRUEF.REGELN'), !$fehl, sprintf(wd_t('PRUEF.H_FAELLE'), count($soll)) . ($fehl ? ': ' . implode(', ', $fehl) : ''));
     // Filter und Zusammenfuehrung
     $j = time();
     $roh = array(array('id' => 'a', 'status' => 'Test', 'ii' => 52, 'stufe' => 2, 'beginn' => $j, 'ende' => $j + 900, 'art' => 'X'),
@@ -778,7 +800,7 @@ function wd_selbsttest()
         array('id' => 'alt', 'status' => 'Actual', 'ii' => 51, 'stufe' => 1, 'beginn' => $j, 'ende' => $j + 900, 'art' => 'BOEEN'),
         array('id' => 'e', 'status' => 'Actual', 'ii' => 22, 'stufe' => 1, 'beginn' => $j - 9000, 'ende' => $j - 10, 'art' => 'FROST'));
     $o = wd_lagen_ordnen($roh, $j);
-    $zeile(wd_t('PRUEF.ORDNEN'), count($o) === 1 && $o[0]['id'] === 'd', count($o) . ' Lage(n)');
+    $zeile(wd_t('PRUEF.ORDNEN'), count($o) === 1 && $o[0]['id'] === 'd', sprintf(wd_t('PRUEF.H_UEBRIG'), count($o)));
     // CAP
     $x = '<alert xmlns="urn"><identifier>i1</identifier><status>Actual</status><msgType>Alert</msgType><info><event>STURMB&#214;EN</event><severity>Moderate</severity><eventCode><valueName>II</valueName><value>52</value></eventCode>'
        . '<eventCode><valueName>GROUP</valueName><value>WIND</value></eventCode><onset>2026-01-01T10:00:00+01:00</onset><expires>2026-01-01T18:00:00+01:00</expires><headline>H</headline><description>D</description><area><geocode><valueName>WARNCELLID</valueName><value>123456789</value></geocode></area></info></alert>';
@@ -815,7 +837,7 @@ function wd_selbsttest()
     // Vorabinformation (Profil 3.1.2: amtlich ab Stufe 3) weckt auf keiner Stufe, auch nicht bei einer Klasse mit Weckrecht
     $vf = array();
     foreach (array(2, 3, 4) as $vs) { if ($r('gewitter', $vs, 1, 1) !== 'einmal/still') { $vf[] = $vs; } }
-    $zeile(wd_t('PRUEF.VORAB'), !$vf && $r('hitze', 3, 0, 1) === 'tagesplan/nie' && wd_warn_regel(array('quelle' => 'nina', 'strom' => 'mow', 'stufe' => 3, 'klasse' => 'sonst', 'vorab' => 1)) === array('dringend', 'weckt'), $vf ? implode(', ', $vf) : '2, 3, 4');
+    $zeile(wd_t('PRUEF.VORAB'), !$vf && $r('hitze', 3, 0, 1) === 'tagesplan/nie' && wd_warn_regel(array('quelle' => 'nina', 'strom' => 'mow', 'stufe' => 3, 'klasse' => 'sonst', 'vorab' => 1)) === array('dringend', 'weckt'), sprintf(wd_t('PRUEF.H_STUFEN'), $vf ? implode(', ', $vf) : '2, 3, 4'));
     // Vorab erkennen: englische <event> tragen das Wort nicht, urgency=Future schon (Profil, Abschnitt urgency)
     $capl = function ($ev, $ur, array $gr, $ii = '40') {
         $g = '';
@@ -869,13 +891,13 @@ function wd_selbsttest()
     $zeile(wd_t('PRUEF.EMU'), count($ez) === 1 && count(explode(';', rtrim($ez[0], ';'))) === 19 && strpos($ea, ';-;1.5;2.5;115;-;') !== false && strpos($eb, ';-;0;0;0;-;') !== false && $es[0]['l'] === 22 && wd_emu_koord('1,2;x') === null);
     // Retain: nur fassung
     $ret = array(); foreach (wd_mqtt_tabelle() as $t => $f) { if ($f[2]) { $ret[] = $t; } }
-    $zeile(wd_t('PRUEF.RETAIN'), $ret === array('fassung'), implode(', ', $ret));
+    $zeile(wd_t('PRUEF.RETAIN'), $ret === array('fassung'), $ret === array('fassung') ? wd_t('PRUEF.H_RETAIN') : implode(', ', $ret));
     // Gruppen haben ein ok
     $tb = wd_mqtt_tabelle(); $ohne = array();
     foreach (array('status', 'jetzt', 'gefuehlt', 'prog', 'warnung', 'schwelle') as $gr) { if (!isset($tb[$gr . '/ok'])) { $ohne[] = $gr; } }
     $zeile(wd_t('PRUEF.OK_THEMA'), !$ohne, implode(', ', $ohne));
     $nb = 0; foreach ($tb as $t => $f) { if ($f[1] && !preg_match('#(ok|zaehler|ist_ersatz|stufe)$#', $t)) { $nb++; } }
-    $zeile(wd_t('PRUEF.NC'), $nb === 0, (string) $nb);
+    $zeile(wd_t('PRUEF.NC'), $nb === 0, $nb === 0 ? wd_t('PRUEF.H_NC') : sprintf(wd_t('PRUEF.H_NC_FEHL'), $nb));
     // Protokoll streicht den Standort
     $zeile(wd_t('PRUEF.LOGSAUBER'), strpos(wd_log_sauber('x?latitude=1.5&longitude=2.5&warn_cell_id=9'), '1.5') === false);
     // Konfiguration und Installation
@@ -884,5 +906,10 @@ function wd_selbsttest()
     $zeile(wd_t('PRUEF.STANDORT'), $pos !== null ? true : null, wd_t($pos !== null ? 'PRUEF.STANDORT_JA' : 'PRUEF.STANDORT_NEIN'));
     $zeile(wd_t('PRUEF.ZELLE'), trim((string) $c['warnzelle']) !== '' ? true : null, wd_t(trim((string) $c['warnzelle']) !== '' ? 'PRUEF.STANDORT_JA' : 'PRUEF.ZELLE_NEIN'));
     $zeile(wd_t('PRUEF.ANSAGE'), defined('ANSAGE_FASSUNG'), defined('ANSAGE_FASSUNG') ? ANSAGE_FASSUNG : '');
+    // 0.9.8: Hausthemen haus/wetter - Vereinbarung offline, dann die letzte Sitzung am Broker
+    list($hv_ok, $hv_t) = wd_haus_vertrag_pruefen();
+    $zeile(wd_t('PRUEF.HAUS_VERTRAG'), $hv_ok, $hv_t);
+    list($hz_ok, $hz_t) = wd_haus_testzeile($c);
+    $zeile(wd_t('PRUEF.HAUS'), $hz_ok, $hz_t);
     return $z;
 }

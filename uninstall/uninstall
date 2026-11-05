@@ -25,6 +25,13 @@ if [ -n "$UN_PHP" ]; then
         $port = is_array($g) && isset($g["Mqtt"]["Udpinport"]) ? (int) $g["Mqtt"]["Udpinport"] : 0;
         if ($port > 0) { $s = @stream_socket_client("udp://127.0.0.1:" . $port, $e, $t, 1); if ($s) { for ($i = 0; $i < 10; $i++) { @fwrite($s, "retain " . $pf . "/fassung "); usleep(200000); } fclose($s); } }' -- "$UN_BASE/config/plugins/$UN_FOLDER/weatherdata.json" "$UN_BASE/config/system/general.json" "$UN_BASE/config/plugins/$UN_FOLDER.backup.json" 2>/dev/null
 fi
+# 0.9.8: die 26 zurueckbehaltenen Hausthemen haus/wetter/... abraeumen (mit Ruecklesen am Broker) - nur, wenn diese Installation
+# Anbieter ist oder war (Haken haus_wetter_ein oder Merker _haus_frueher); eine Zweitinstallation raeumt die Themen der ersten nie ab.
+# wd_takt.php gibt <OK>/<INFO>/<WARNING> aus und endet immer mit 0; die Deinstallation laeuft weiter.
+UN_TAKT="$UN_BASE/bin/plugins/$UN_FOLDER/wd_takt.php"
+if [ -f "$UN_TAKT" ] && command -v php >/dev/null 2>&1; then
+    timeout -k 5 60 php "$UN_TAKT" --haus-leeren 2>&1 | head -n 5
+fi
 # Port 6066 des Emulators: nur die eigene Datei, nur wenn sie da ist. Die Deinstallation laeuft als root.
 UN_ETC="${WD_APACHE_ETC:-/etc/apache2}"
 UN_NAME="001-$UN_FOLDER-emu"

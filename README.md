@@ -53,6 +53,8 @@ Beides tragen Sie selbst ein. Die Warnzelle lässt sich aus dem Standort vorschl
 
 Virtuelle Eingänge heißen wie der Gateway-Name; Haken je Thema nach der Hakenliste im Reiter MQTT (Pflicht und wahlweise getrennt). Retained ist nur `fassung`. Keine Aussage ist ein Strich `-`, nie ein leerer Wert und nie der alte Wert; die Logik hängt an den Zahlenthemen `.../ok`. Wie ein Virtueller Eingang den Strich behandelt, bitte an der eigenen Anlage messen.
 
+Für andere Plugins (ab 0.9.8, ab Werk aus): eine kleine Wetterübersicht unter `haus/wetter/…`, siehe „Neu in 0.9.8“. Sie braucht in Loxone nichts.
+
 ## Emulator des Loxone-Wetterdienstes
 
 **Ab Werk aus. Nicht am Miniserver gemessen, nur gegen eine Nachbildung seiner Abfrage; Rückmeldung erbeten.** Der Emulator stammt nicht von Loxone. Der Miniserver holt damit die Wetterdaten vom LoxBerry, als kämen sie vom Dienst; die Daten kommen aus dem Prognose-Bestand dieses Plugins. Prüfen Sie selbst, ob das zu Ihrem Loxone-Vertrag und den Bedingungen des Wetterdienstes passt. Das Plugin gibt dazu keine Zusage.
@@ -101,6 +103,20 @@ Dieses Plugin enthält keinen fremden Code. Es liest:
 - Die Ecowitt-Weiche ist ein eigenes Plugin und bleibt getrennt installiert.
 
 Die Unwetterzentrale ist wegen ihrer Bedingungen bewusst nicht eingebaut. **WetterOnline ist ebenfalls nicht eingebaut, anders als bei Weather4Lox:** Es gibt keine öffentlich dokumentierte Schnittstelle; Weather4Lox nutzt Adressen, die für die WetterOnline-App gedacht sind. Die AGB (Fassung vom 24.02.2025, Ziffer 2) untersagen die unberechtigte Vervielfältigung und Speicherung der Inhalte und verweisen auf eine Anfrage vorab. Das Antwortformat des Emulators ist am öffentlichen Quelltext von Weather4Lox (Apache-2.0, Michael Schlenstedt, Jan Wachsmuth) abgelesen; es ist keine Zeile daraus übernommen. „Loxone“ ist eine Marke ihres Inhabers. Lizenz dieses Plugins: MIT.
+
+## Neu in 0.9.8
+
+Am Gerät und an einem echten Broker nicht gemessen; gegen einen Prüf-Broker (MQTT 3.1.1 mit Retain-Speicher) gefahren.
+
+- **Wetter für andere Plugins** (Reiter MQTT, Haken „Wetter an andere Plugins geben“, **ab Werk aus**): Weatherdata legt eine kleine Wetterübersicht unter `haus/wetter/…` im MQTT-Broker ab, damit andere Plugins sie lesen können – zuerst die Sprachsteuerung (ab 0.12.13) für Fragen wie „Wie warm ist es draußen?“, „Brauche ich einen Schirm?“ oder „Gibt es eine Wetterwarnung?“. Inhalt: Temperatur und gefühlt jetzt, Feuchte, Wind, Böen, Regen jetzt; für heute (ab jetzt) und morgen Tiefst- und Höchstwert, Regen in mm, Regenwahrscheinlichkeit, Wettercode und Wetter in Worten; amtliche Warnstufe mit kurzem Namen; stärkste Pollenbelastung heute. Nie der Standort, nie die Warnzelle.
+- **So geht es:** 1. Reiter MQTT, „Wetter an andere Plugins geben“ anhaken, speichern. 2. In der Sprachsteuerung Reiter MQTT „Wetterfragen beantworten“ anhaken, speichern. 3. Nach höchstens zwei Minuten antwortet sie. In Loxone ist nichts einzurichten. Der Reiter Test zeigt in der Zeile „Wetter für andere Plugins“, ob die Übersicht ankommt.
+- **Technik:** 28 Themen, 26 davon bleiben im Broker (retained), `haus/wetter/ok` und das Lebenszeichen `haus/wetter/zaehler/weatherdata` nie. Gesendet über eine kurze Verbindung direkt zum Broker: jede Minute ok und Lebenszeichen, die Werte bei Änderung und alle 30 Minuten vollständig. Ohne Wert: Temperaturen −999, andere Zahlen −1, Wörter `-`. Haken aus, „Werte über MQTT senden“ aus oder Deinstallation: Die 26 Themen werden im Broker abgeräumt und zurückgelesen. Die Liste steht im Reiter MQTT.
+- Die bisherigen Themen `weatherdata/…` sind unverändert.
+- **Reiter Werte:** Tabelle „Jetzt“ mit festen Spalten, Zahlen rechtsbündig mit Einheit. Ohne eigene Messung kommt jeder Wert einzeln aus Open-Meteo, sonst aus dem Mischwert der laufenden Stunde (bis 0.9.7 blieb ein fehlender Open-Meteo-Wert leer). Verglichen wird jetzt mit dem Mischwert aller antwortenden Vorhersagen; Taupunkt, Luftdruck und Windrichtung von Open-Meteo. Der Luftdruck wird auf Meereshöhe verglichen (`pressure_msl`) und ab 3 hPa markiert; die Windrichtung als kürzester Winkel, bei Windstille ohne Abweichung. Die Hilfe erklärt, warum ein Piezo-Regenmesser „regnet“ bei 0,0 mm/h melden kann. MQTT unverändert.
+- **Reiter Quellen:** Weitere Dienste je Dienst in einem Kasten (NINA, Meteoalarm, Dienste mit Schlüssel, Wunderground), die Gemeindesuche direkt beim Nummernfeld, „Regionen mit aktueller Warnung zeigen“ direkt beim Regionsfeld; Suchen speichert nichts, die Eingaben bleiben stehen.
+- **Reiter MQTT:** Die Themenliste passt in die Seitenbreite (lange Namen brechen um); breite Tabellen zeigen am Handy „zur Seite wischen“. Pflicht sind jetzt genau die 25 Themen, die die Musterseiten verdrahten (bis 0.9.7 zusätzlich 25 weitere, etwa die Quellen-ok-Themen); die Prüfzeile nennt nur, was fehlt, und sagt, wie man einen Haken setzt.
+- **Reiter Test:** Prüfzeilen in Alltagssprache und metrischen Einheiten („Gefühlte Kälte bei −1,1 °C und 16 km/h“).
+- **Reiter Einbindung mit Bildern:** Unter jeder der zwei Baustein-Tabellen steht jetzt das Bild der Musterseite („Weatherdata“, „Weatherdata Werte und Signale“), so wie sie im Musterprojekt angeordnet ist.
 
 ## Neu in 0.9.7
 

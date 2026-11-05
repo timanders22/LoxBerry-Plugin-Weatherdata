@@ -17,6 +17,7 @@ require_once __DIR__ . '/wd_mehr.php';
 require_once __DIR__ . '/wd_emu.php';
 require_once __DIR__ . '/wd_seite.php';
 require_once __DIR__ . '/wd_eigen.php';
+require_once __DIR__ . '/wd_haus.php';
 
 if (!function_exists('lb_wurzel_ermitteln')) {
     function lb_wurzel_ermitteln()
@@ -168,6 +169,7 @@ function wd_felder()
         'ansage_sprache' => array('warn_save', 'a', 'de', array('de', 'en'), 0),
         'mqtt_ein' => array('mqtt_save', 'h', 1, 0, 0),
         'mqtt_topic' => array('mqtt_save', 'thema', 'weatherdata', 0, 0),
+        'haus_wetter_ein' => array('mqtt_save', 'h', 0, 0, 0),      // 0.9.8: Hausthemen haus/wetter, ab Werk aus (Hausherr 04.11.2026)
         'emu_ein' => array('emu_save', 'h', 0, 0, 0),
         'emu_nur_ms' => array('emu_save', 'h', 1, 0, 0),
         'lox_ein' => array('lox_save', 'h', 0, 0, 0),
@@ -559,7 +561,17 @@ function wd_mqtt_tabelle()
     }
     foreach (array(1, 2, 3, 4) as $f) { $t['prog/fassade' . $f . '/wm2'] = array('z', 0, 0, 'W', 0, 1500, 'W/m2'); }
     foreach (wd_herkunft_werte() as $h) { $t['herkunft/' . $h] = array('t', 0, 0, 'W', 0, 0, ''); }
+    // 0.9.8: Pflicht ist genau, was die Musterseiten verdrahten (wd_pflicht_themen()); alles andere wahlweise.
+    $pf = array_flip(wd_pflicht_themen());
+    foreach ($t as $k => $f) { $t[$k][3] = isset($pf[$k]) ? 'P' : 'W'; }
     return $t;
+}
+
+/** 0.9.8: die 25 Themen, die die Musterseiten "Weatherdata" und "Weatherdata Werte und Signale" verdrahten (Baustein-Liste MPL.*,
+ *  Quelle wd097_mp_spec.py). Nur sie sind Pflichthaken; die Probe haelt die Liste gegen die Baustein-Liste. */
+function wd_pflicht_themen()
+{
+    return array('status/ok', 'status/zaehler', 'jetzt/ok', 'jetzt/ist_ersatz', 'jetzt/temp_c', 'jetzt/rf_pct', 'jetzt/wind_kmh', 'jetzt/regen_mmh', 'jetzt/strahlung_wm2', 'jetzt/uv', 'prog/ok', 'prog/h4/solar_wm2', 'prog/h12/tmin_c', 'prog/h12/tmax_c', 'prog/h12/regen_mm', 'prog/h24/tmax_c', 'prog/h24/schnee_cm', 'prog/tag1/tmax_c', 'warnung/ok', 'warnung/stufe', 'warnung/text', 'schwelle/hitze_32', 'frost/erwartet', 'starkregen/warnung', 'sturm/vorwarnung');
 }
 
 function wd_herkunft_werte()
@@ -733,7 +745,12 @@ function wd_v2_lage($c)
         if ($z['nc'] && !$abo[$z['thema']]) { $ncf[] = $z['thema']; }
     }
     if (!$fehlt && !$ncf) { return array(true, sprintf(wd_t('PRUEF.V2_OK'), $n)); }
-    return array(false, sprintf(wd_t('PRUEF.V2_FEHLT'), $da, $n, implode(', ', array_slice($fehlt, 0, 6)), implode(', ', array_slice($ncf, 0, 6))));
+    // 0.9.8: nur nennen, was wirklich fehlt (bis 0.9.7 stand "Noncached fehlt: ." auch mit leerer Liste); dazu, was das bedeutet.
+    $kurz = function ($l) { return implode(', ', array_slice($l, 0, 6)) . (count($l) > 6 ? ' ' . sprintf(wd_t('PRUEF.V2_MEHR'), count($l) - 6) : ''); };
+    $tx = sprintf(wd_t('PRUEF.V2_ZAHL'), $da, $n);
+    if ($fehlt) { $tx .= ' ' . sprintf(wd_t('PRUEF.V2_FEHLT_L'), $kurz($fehlt)); }
+    if ($ncf) { $tx .= ' ' . sprintf(wd_t('PRUEF.V2_NC_L'), $kurz($ncf)); }
+    return array(false, $tx . ' ' . wd_t('PRUEF.V2_HILFE'));
 }
 
 /** Importvorlage: Kunstgriff VirtualInHttp mit Dummy-Adresse (Regeln/07). Nur Zahlenthemen, Texte brauchen Virtuelle Texteingaenge. */
@@ -830,7 +847,7 @@ function wd_sicherung_lesen($roh, $geltend = null)
     $fehlt = array();
     // Felder, die eine Sicherung von vor 0.9.4 nicht kennen kann, gelten mit ihrer Vorgabe; alles andere muss da sein.
     $wf_felder = wd_felder();
-    foreach (array_keys(wd_vorgaben()) as $k) { if (!array_key_exists($k, $d) && !in_array($k, array('wttr_ein', 'emu_ein', 'emu_nur_ms', 'wu_ein', 'wu_station', 'lox_ein', 'lox_gueltig_min'), true) && !(isset($wf_felder[$k]) && $wf_felder[$k][1] === 'g')) { $fehlt[] = $k; } }
+    foreach (array_keys(wd_vorgaben()) as $k) { if (!array_key_exists($k, $d) && !in_array($k, array('wttr_ein', 'emu_ein', 'emu_nur_ms', 'wu_ein', 'wu_station', 'lox_ein', 'lox_gueltig_min', 'haus_wetter_ein'), true) && !(isset($wf_felder[$k]) && $wf_felder[$k][1] === 'g')) { $fehlt[] = $k; } }
     if ($fehlt) { $mangel[] = sprintf(wd_t('SICH.FEHLEND'), count($fehlt), implode(', ', $fehlt)); }
     if (trim((string) $neu['aktionstoken']) === '') { $mangel[] = wd_t('SICH.TOKEN_LEER'); }
     return array($mangel ? null : $neu, $mangel, $n, $hin);

@@ -87,7 +87,10 @@ if ($wf_post && isset($_POST['wd_zurueck'])) {
     } elseif ((int) $_FILES['wd_sicherung']['size'] > 262144) {
         $wf_err = wd_t('SICH.ZU_GROSS');
     } else {
-        $wf_e = wd_sicherung_lesen((string) @file_get_contents($_FILES['wd_sicherung']['tmp_name']), wd_config());
+        $wf_halt = wd_config();
+        $wf_e = wd_sicherung_lesen((string) @file_get_contents($_FILES['wd_sicherung']['tmp_name']), $wf_halt);
+        // 0.9.8: der Merker "war Anbieter von haus/wetter" gehoert zur Installation, nicht zur Sicherung - er bleibt.
+        if ($wf_e[0] !== null && !empty($wf_halt['_haus_frueher'])) { $wf_e[0]['_haus_frueher'] = 1; }
         if ($wf_e[0] === null) {
             $wf_err = wd_t('SICH.ABGELEHNT') . ' ' . implode(' ', $wf_e[1]);
         } elseif (wd_config_speichern($wf_e[0])) {
@@ -98,6 +101,9 @@ if ($wf_post && isset($_POST['wd_zurueck'])) {
                 $wf_hinweise = array_merge($wf_hinweise, $wf_e[3]);
                 @unlink(wd_tmpdir() . '/mqtt_sig.txt');
                 wd_abo_nachziehen($wf_e[0]);
+                list($wf_hm, $wf_ha, $wf_hf) = wd_haus_folgen($wf_halt, $wf_e[0]);
+                if ($wf_hf !== null) { wd_haus_frueher_setzen((bool) $wf_hf); }
+                if ($wf_hm !== '') { $wf_hinweise[] = $wf_hm; }
             } else {
                 $wf_err = wd_t('SICH.NICHT_ANGEKOMMEN');
             }
@@ -128,6 +134,19 @@ if ($wf_post && isset($_POST['zelle_finden'])) {
     else { $wf_note = sprintf(wd_t('MELD.ZELLE_VORSCHLAG'), $wf_vs[0], $wf_vs[1]); }
 }
 // ---------- 0.9.6: Regionalschluessel und Meteoalarm-Region, nur auf Knopfdruck ----------
+// 0.9.8: Suche und Uebernehmen stehen als Knoepfe im Formular der Zusatzdienste (kein Formular im Formular). Ein solcher Knopf
+// speichert dieses Formular nie: zusatz_save faellt weg, die Eingaben reisen als X-2 zurueck (Schluessel nie, wie beim Speichern).
+$wf_zusatz_knopf = $wf_post && (isset($_POST['nina_suchen']) || isset($_POST['nina_setzen']) || isset($_POST['ma_suchen']) || isset($_POST['ma_setzen']));
+if ($wf_zusatz_knopf) {
+    unset($_POST['zusatz_save']);
+    $wf_xw = array();
+    foreach (wd_felder() as $wf_k => $wf_f) {
+        if ($wf_f[0] !== 'zusatz_save' || $wf_f[1] === 'g') { continue; }
+        if ($wf_f[1] === 'h') { $wf_xw[$wf_k] = isset($_POST[$wf_k]) ? '1' : '0'; continue; }
+        if (isset($_POST[$wf_k]) && is_string($_POST[$wf_k]) && strlen($_POST[$wf_k]) < 200) { $wf_xw[$wf_k] = $_POST[$wf_k]; }
+    }
+    $wf_x2neu = array('form' => 'zusatz_save', 'werte' => $wf_xw, 'bean' => array(), 'ziele' => null);
+}
 if ($wf_post && isset($_POST['nina_suchen'])) {
     $wf_h = wd_ars_suchen(isset($_POST['nina_such']) && is_string($_POST['nina_such']) ? $_POST['nina_such'] : '');
     $wf_hilfe['such'] = $wf_h['such']; $wf_hilfe['ars'] = $wf_h['treffer'];
@@ -140,11 +159,12 @@ if ($wf_post && isset($_POST['nina_setzen'])) {
         $wf_note_art = 'warn'; $wf_note = wd_t('MELD.HILFE_UNGUELTIG');
     } else {
         $wf_c = wd_config(); $wf_c['nina_ars'] = $wf_v[1];
-        if (wd_config_speichern($wf_c)) { wd_zweitschrift($wf_c); $wf_note = wd_t('MELD.ARS_UEBERNOMMEN'); } else { $wf_err = wd_t('MELD.SPEICHERN_FEHL'); }
+        if (wd_config_speichern($wf_c)) { wd_zweitschrift($wf_c); $wf_note = wd_t('MELD.ARS_UEBERNOMMEN'); if (is_array($wf_x2neu)) { $wf_x2neu['werte']['nina_ars'] = $wf_v[1]; } } else { $wf_err = wd_t('MELD.SPEICHERN_FEHL'); }
     }
 }
 if ($wf_post && isset($_POST['ma_suchen'])) {
-    $wf_v = wd_wert_pruefen('ma_land', isset($_POST['ma_such_land']) ? $_POST['ma_such_land'] : null);
+    // 0.9.8: das Land kommt aus dem Feld Land desselben Kastens (bis 0.9.7 eigenes Suchformular ma_such_land).
+    $wf_v = wd_wert_pruefen('ma_land', isset($_POST['ma_land']) ? $_POST['ma_land'] : (isset($_POST['ma_such_land']) ? $_POST['ma_such_land'] : null));
     if (!$wf_v[0] || $wf_v[1] === '') {
         $wf_note_art = 'warn'; $wf_note = wd_t('MELD.MA_LAND');
     } else {
@@ -162,7 +182,7 @@ if ($wf_post && isset($_POST['ma_setzen'])) {
         $wf_note_art = 'warn'; $wf_note = wd_t('MELD.HILFE_UNGUELTIG');
     } else {
         $wf_c = wd_config(); $wf_c['ma_land'] = $wf_v[1]; $wf_c['ma_emma'] = $wf_w2[1];
-        if (wd_config_speichern($wf_c)) { wd_zweitschrift($wf_c); $wf_note = wd_t('MELD.MA_UEBERNOMMEN'); } else { $wf_err = wd_t('MELD.SPEICHERN_FEHL'); }
+        if (wd_config_speichern($wf_c)) { wd_zweitschrift($wf_c); $wf_note = wd_t('MELD.MA_UEBERNOMMEN'); if (is_array($wf_x2neu)) { $wf_x2neu['werte']['ma_land'] = $wf_v[1]; $wf_x2neu['werte']['ma_emma'] = $wf_w2[1]; } } else { $wf_err = wd_t('MELD.SPEICHERN_FEHL'); }
     }
 }
 if ($wf_post && isset($_POST['clearlog'])) {
@@ -227,7 +247,13 @@ foreach (array('save', 'quellen_save', 'zusatz_save', 'warn_save', 'mqtt_save', 
         $wf_saved = true;
         wd_zweitschrift($wf_neu);
         @unlink(wd_tmpdir() . '/mqtt_sig.txt');
-        if ($wf_form === 'mqtt_save') { wd_abo_nachziehen($wf_neu); }
+        if ($wf_form === 'mqtt_save') {
+            wd_abo_nachziehen($wf_neu);
+            // 0.9.8: Hausthemen haus/wetter - einschalten meldet, ausschalten raeumt im Broker ab (mit Ruecklesen).
+            list($wf_hm, $wf_ha, $wf_hf) = wd_haus_folgen($wf_alt, $wf_neu);
+            if ($wf_hf !== null) { wd_haus_frueher_setzen((bool) $wf_hf); }
+            if ($wf_hm !== '') { $wf_note = $wf_hm; $wf_note_art = $wf_ha; }
+        }
     } else {
         $wf_err = wd_t('MELD.SPEICHERN_FEHL');
     }
@@ -350,6 +376,11 @@ if ($wf_frame) { LBWeb::lbheader('Weatherdata', 'https://wiki.loxberry.de/plugin
 
 .sm-breit { overflow-x: auto; -webkit-overflow-scrolling: touch; margin: 10px 0; }
 .sm-breit .sm-tbl { margin: 0; min-width: 760px; }
+/* 0.9.8: am Handy nie stumm abgeschnitten - sichtbarer Hinweis ueber jeder breiten Tabelle */
+@media (max-width: 800px) { .sm-breit::before { content: "<?= str_replace(array('\\', '"'), '', wd_t('TEXT.WISCHEN')) ?>"; display: block; font-size: .85em; color: #666; margin-bottom: 4px; } }
+#wd-hakenliste { table-layout: fixed; width: 100%; min-width: 0; }
+#wd-hakenliste td, #wd-hakenliste th { overflow-wrap: anywhere; word-break: normal; vertical-align: top; }
+.sm-breit.sm-passt::before { content: none; }
 .sm-wrap .sm-btn, .sm-wrap a.sm-btn, .sm-wrap button { text-shadow: none !important; box-shadow: none !important; }
 .sm-wrap a.sm-btn, .sm-wrap a.sm-btn:visited, .sm-wrap a.sm-btn:hover { color: #fff !important; text-decoration: none; }
 
@@ -385,10 +416,17 @@ if ($wf_frame) { LBWeb::lbheader('Weatherdata', 'https://wiki.loxberry.de/plugin
     padding: 10px 12px; margin: 12px 0; font-size: 0.9em; }
 
 .sm-tbl tr.sm-abweichung td { background: #fdf4ec; }
+#wd-werte-jetzt { table-layout: fixed; width: 100%; min-width: 600px; }
+#wd-werte-jetzt td.sm-zahl, #wd-werte-jetzt th.sm-zahl { text-align: right; white-space: nowrap; }
+#wd-werte-jetzt td.sm-her { overflow-wrap: anywhere; }
+#wd-werte-jetzt td, #wd-werte-jetzt th { overflow: hidden; text-overflow: ellipsis; vertical-align: top; }
+#wd-werte-jetzt td.sm-her, #wd-werte-jetzt td:first-child, #wd-werte-jetzt th { white-space: normal; text-overflow: clip; }
 .sm-tbl tr.sm-abweichung td:last-child { color: #b84f0a; }
 .sm-wrap .sm-beanstandet { border: 2px solid #e0620d !important; background-color: #fdf4ec !important; }
 
 .sm-bild { margin: 12px 0; }
+.sm-dienst { border-top: 1px solid #ddd; padding-top: 8px; margin-top: 8px; }
+.sm-dienst:first-of-type { border-top: 0; }
 .sm-bild img { max-width: 100%; height: auto; border: 1px solid #ccc; border-radius: 4px; background: #fff; }
 .sm-bild figcaption { font-size: .9em; color: #555; margin-top: 4px; }
 .sm-wrap h4.sm-h4 { color: #4f7d17; font-size: 0.98em; font-weight: 700; margin: 22px 0 4px;
@@ -481,10 +519,12 @@ if ($wf_frame) { LBWeb::lbheader('Weatherdata', 'https://wiki.loxberry.de/plugin
 <?php if (empty($wf_st)) { ?><div class="sm-alert sm-info"><?= wd_e(wd_t('TEXT.NOCH_KEIN_LAUF')) ?></div><?php } else { ?>
 <h2><?= wd_e(wd_t('TEXT.H_JETZT')) ?></h2>
 <?php $wf_vg = wd_vergleich($wf_st); $wf_dn = wd_herkunft_name($wf_st['dienst_her'] ?? ''); ?>
-<div class="sm-breit"><table class="sm-tbl" id="wd-werte-jetzt"><tr><th><?= wd_e(wd_t('TEXT.T_WERT')) ?></th><th><?= wd_e(wd_t('TEXT.T_STAND')) ?></th><th><?= wd_e(wd_t('TEXT.T_HERKUNFT')) ?></th><th><?= wd_e(wd_t('WERTE.T_EIGEN')) ?></th><th><?= wd_e(sprintf(wd_t('WERTE.T_DIENST'), $wf_dn)) ?></th><th><?= wd_e(wd_t('WERTE.T_ABWEICHUNG')) ?></th></tr>
-<?php foreach ((array) $wf_st['jetzt'] as $wf_k => $wf_v) { $wf_z = isset($wf_vg[$wf_k]) ? $wf_vg[$wf_k] : array(null, null, null, null); ?><tr<?= $wf_z[3] === true ? ' class="sm-abweichung"' : '' ?>><td><?= wd_e(wd_t('THEMA.jetzt_' . $wf_k)) ?></td><td><?= wf_wert($wf_v) ?></td><td><?= wd_e(wd_herkunft_name($wf_st['herkunft'][$wf_k] ?? '')) ?></td><td><?= wf_wert($wf_z[0]) ?></td><td><?= wf_wert($wf_z[1]) ?></td><td><?= $wf_z[2] === null ? '&ndash;' : wd_e(($wf_z[2] > 0 ? '+' : '') . rtrim(rtrim(number_format($wf_z[2], 1, '.', ''), '0'), '.')) ?><?= $wf_z[3] === true ? ' <b>' . wd_e(wd_t('WERTE.DEUTLICH')) . '</b>' : '' ?></td></tr><?php } ?>
-<tr><td><?= wd_e(wd_t('THEMA.gefuehlt_c')) ?></td><td><?= wf_wert($wf_st['gefuehlt']) ?></td><td><?= wd_e(wd_gefuehlt_herkunft($wf_st)) ?></td><td>&ndash;</td><td>&ndash;</td><td>&ndash;</td></tr>
+<div class="sm-breit"><table class="sm-tbl" id="wd-werte-jetzt"><colgroup><col style="width:22%"><col style="width:14%"><col style="width:22%"><col style="width:14%"><col style="width:14%"><col style="width:14%"></colgroup>
+<tr><th><?= wd_e(wd_t('TEXT.T_WERT')) ?></th><th class="sm-zahl"><?= wd_e(wd_t('TEXT.T_STAND')) ?></th><th><?= wd_e(wd_t('TEXT.T_HERKUNFT')) ?></th><th class="sm-zahl"><?= wd_e(wd_t('WERTE.T_EIGEN')) ?></th><th class="sm-zahl"><?= wd_e(sprintf(wd_t('WERTE.T_DIENST'), $wf_dn)) ?></th><th class="sm-zahl"><?= wd_e(wd_t('WERTE.T_ABWEICHUNG')) ?></th></tr>
+<?php $wf_ez = function ($w, $eh) { return ($w === null || $w === '') ? '&ndash;' : wf_wert($w) . ($eh !== '' ? '&nbsp;' . wd_e($eh) : ''); }; $wf_omk = (array) ($wf_st['dienst_om'] ?? array()); foreach ((array) $wf_st['jetzt'] as $wf_k => $wf_v) { $wf_z = isset($wf_vg[$wf_k]) ? $wf_vg[$wf_k] : array(null, null, null, null); $wf_eh = wd_vergleich_einheit($wf_k); ?><tr<?= $wf_z[3] === true ? ' class="sm-abweichung"' : '' ?>><td><?= wd_e(wd_t('THEMA.jetzt_' . $wf_k)) ?></td><td class="sm-zahl"><?= $wf_ez($wf_v, $wf_eh) ?></td><td class="sm-her"><?= wd_e(wd_herkunft_name($wf_st['herkunft'][$wf_k] ?? '')) ?></td><td class="sm-zahl"><?= $wf_ez($wf_z[0], $wf_eh) ?></td><td class="sm-zahl"><?= $wf_ez($wf_z[1], $wf_eh) ?><?= ($wf_z[1] !== null && in_array($wf_k, $wf_omk, true)) ? '<sup title="' . wd_e(wd_t('WERTE.FUSS_OM')) . '">1</sup>' : '' ?></td><td class="sm-zahl"><?= $wf_z[2] === null ? '&ndash;' : wd_e(($wf_z[2] > 0 && $wf_k !== 'windrichtung_grad' ? '+' : '') . rtrim(rtrim(number_format($wf_z[2], 1, '.', ''), '0'), '.')) . ($wf_eh !== '' && $wf_z[2] !== null ? '&nbsp;' . wd_e($wf_eh) : '') ?><?= $wf_z[3] === true ? '<br><b>' . wd_e(wd_t('WERTE.DEUTLICH')) . '</b>' : '' ?></td></tr><?php } ?>
+<tr><td><?= wd_e(wd_t('THEMA.gefuehlt_c')) ?></td><td class="sm-zahl"><?= $wf_ez($wf_st['gefuehlt'], '°C') ?></td><td class="sm-her"><?= wd_e(wd_gefuehlt_herkunft($wf_st)) ?></td><td class="sm-zahl">&ndash;</td><td class="sm-zahl">&ndash;</td><td class="sm-zahl">&ndash;</td></tr>
 </table></div>
+<div class="sm-small" id="wd-werte-quelle"><?php if (!empty($wf_st['dienst_om'])) { ?><sup>1</sup> <?= wd_e(wd_t('WERTE.FUSS_OM')) ?> <?php } ?><?= wd_e(wd_t('WERTE.QUELLE')) ?></div>
 <div class="sm-hilfe" id="wd-werte-vergleich"><?= wd_e(wd_t('WERTE.HILFE')) ?></div>
 <h2><?= wd_e(wd_t('TEXT.H_PROGNOSE')) ?></h2>
 <div class="sm-breit"><table class="sm-tbl"><tr><th><?= wd_e(wd_t('TEXT.T_WERT')) ?></th><th><?= wd_e(wd_t('TEXT.T_STAND')) ?></th></tr>
@@ -531,40 +571,51 @@ if ($wf_frame) { LBWeb::lbheader('Weatherdata', 'https://wiki.loxberry.de/plugin
 <?= wf_feld('aq_ein') ?><?= wf_feld('pollen_ein') ?><?= wf_feld('pollen_region') ?>
 <button data-role="none" class="sm-btn sm-b-aktion" type="submit"><?= wd_e(wd_t('TEXT.SPEICHERN')) ?></button>
 </form>
-<h2><?= wd_e(wd_t('TEXT.H_Q_AUS')) ?></h2>
-<div class="sm-warnung"><?= wd_e(wd_t('TEXT.AUS_HILFE')) ?></div>
-<h3 class="sm-h3" id="wd-ars-suche"><?= wd_e(wd_t('TEXT.H_ARS_SUCHE')) ?></h3>
-<div class="sm-hilfe"><?= wd_e(wd_t('TEXT.ARS_HILFE')) ?></div>
-<form action="index.php" method="post"><?= wd_fmt() ?><input data-role="none" type="hidden" name="activetab" value="tab-quellen"><input data-role="none" type="hidden" name="nina_suchen" value="1">
-<div class="sm-feld"><label for="nina_such"><?= wd_e(wd_t('TEXT.ARS_FELD')) ?></label><input data-role="none" type="text" id="nina_such" name="nina_such" maxlength="60" value="<?= wd_e(isset($wf_hilfe['such']) ? $wf_hilfe['such'] : '') ?>"></div>
-<button data-role="none" class="sm-btn sm-b-lesen" type="submit"><?= wd_e(wd_t('TEXT.K_ARS_SUCHEN')) ?></button></form>
-<?php if (!empty($wf_hilfe['ars'])) { ?><form action="index.php" method="post"><?= wd_fmt() ?><input data-role="none" type="hidden" name="activetab" value="tab-quellen"><input data-role="none" type="hidden" name="nina_setzen" value="1">
-<div class="sm-feld"><label for="nina_wert"><?= wd_e(wd_t('TEXT.TREFFER')) ?></label><select data-role="none" id="nina_wert" name="nina_wert"><?php foreach ((array) $wf_hilfe['ars'] as $wf_z) { ?><option value="<?= wd_e($wf_z[0]) ?>"><?= wd_e($wf_z[1] . ' (' . $wf_z[0] . ')') ?></option><?php } ?></select></div>
-<button data-role="none" class="sm-btn sm-b-aktion" type="submit"><?= wd_e(wd_t('TEXT.K_EINTRAGEN')) ?></button></form><?php } ?>
-<h3 class="sm-h3" id="wd-ma-suche"><?= wd_e(wd_t('TEXT.H_MA_SUCHE')) ?></h3>
-<div class="sm-warnung"><?= wd_e(wd_t('TEXT.MA_NUR_AUSSEN')) ?></div>
-<div class="sm-hilfe"><?= wd_e(wd_t('TEXT.MA_HILFE')) ?></div>
-<form action="index.php" method="post"><?= wd_fmt() ?><input data-role="none" type="hidden" name="activetab" value="tab-quellen"><input data-role="none" type="hidden" name="ma_suchen" value="1">
-<div class="sm-feld"><label for="ma_such_land"><?= wd_e(wd_t('TEXT.MA_F_LAND')) ?></label><?= wf_auswahl('ma_such_land', 'ma_land', isset($wf_hilfe['ma_land']) ? $wf_hilfe['ma_land'] : $wf_cfg['ma_land']) ?></div>
-<button data-role="none" class="sm-btn sm-b-lesen" type="submit"><?= wd_e(wd_t('TEXT.K_MA_SUCHEN')) ?></button></form>
-<?php if (!empty($wf_hilfe['ma'])) { ?><form action="index.php" method="post"><?= wd_fmt() ?><input data-role="none" type="hidden" name="activetab" value="tab-quellen"><input data-role="none" type="hidden" name="ma_setzen" value="1"><input data-role="none" type="hidden" name="ma_wert_land" value="<?= wd_e($wf_hilfe['ma_land']) ?>">
-<div class="sm-feld"><label for="ma_wert"><?= wd_e(wd_t('TEXT.TREFFER')) ?></label><select data-role="none" id="ma_wert" name="ma_wert"><?php foreach ((array) $wf_hilfe['ma'] as $wf_a => $wf_b) { ?><option value="<?= wd_e($wf_a) ?>"><?= wd_e($wf_b . ' (' . $wf_a . ')') ?></option><?php } ?></select></div>
-<button data-role="none" class="sm-btn sm-b-aktion" type="submit"><?= wd_e(wd_t('TEXT.K_EINTRAGEN')) ?></button></form><?php } ?>
-<form action="index.php" method="post">
+<h2 id="wd-zusatz"><?= wd_e(wd_t('TEXT.H_Q_AUS')) ?></h2>
+<?php /* 0.9.8: EIN Formular, je Dienst ein Kasten. Die Such- und Uebernehmen-Knoepfe senden dasselbe Formular mit eigenem name;
+   ihr Handler oben speichert es nie (zusatz_save faellt weg). Das Formulartoken steht innerhalb des Formulars. */ ?>
+<form action="index.php" method="post" id="wd-zusatz-form">
 <?= wd_fmt() ?><input data-role="none" type="hidden" name="activetab" value="tab-quellen"><input data-role="none" type="hidden" name="zusatz_save" value="1">
+<div class="sm-step" id="wd-kasten-nina">
 <h3 class="sm-h3"><?= wd_e(wd_t('TEXT.H_NINA')) ?></h3>
-<?= wf_feld('nina_ein') ?><?= wf_feld('nina_ars') ?>
+<div class="sm-hilfe"><?= wd_e(wd_t('Q2.NINA_WOZU')) ?> <?= wd_e(wd_t('Q2.NINA_BED')) ?></div>
+<?= wf_feld('nina_ein') ?>
+<div class="sm-feld" id="wd-ars-suche"><label for="nina_such"><?= wd_e(wd_t('Q2.ARS_FELD')) ?></label><input data-role="none" type="text" id="nina_such" name="nina_such" maxlength="60" value="<?= wd_e(isset($wf_hilfe['such']) ? $wf_hilfe['such'] : '') ?>">
+<button data-role="none" class="sm-btn sm-b-lesen" type="submit" name="nina_suchen" value="1"><?= wd_e(wd_t('TEXT.K_ARS_SUCHEN')) ?></button>
+<div class="sm-hilfe"><?= wd_e(wd_t('TEXT.ARS_HILFE')) ?></div></div>
+<?php if (!empty($wf_hilfe['ars'])) { ?><div class="sm-feld" id="wd-ars-treffer"><label for="nina_wert"><?= wd_e(wd_t('TEXT.TREFFER')) ?></label><select data-role="none" id="nina_wert" name="nina_wert"><?php foreach ((array) $wf_hilfe['ars'] as $wf_z) { ?><option value="<?= wd_e($wf_z[0]) ?>"><?= wd_e($wf_z[1] . ' (' . $wf_z[0] . ')') ?></option><?php } ?></select>
+<button data-role="none" class="sm-btn sm-b-aktion" type="submit" name="nina_setzen" value="1"><?= wd_e(wd_t('Q2.K_UEBERNEHMEN')) ?></button></div><?php } ?>
+<?= wf_feld('nina_ars') ?>
+<button data-role="none" class="sm-btn sm-b-aktion" type="submit" name="zusatz_speichern" value="1"><?= wd_e(wd_t('TEXT.SPEICHERN')) ?></button>
+</div>
+<div class="sm-step" id="wd-kasten-ma">
 <h3 class="sm-h3"><?= wd_e(wd_t('TEXT.H_MA')) ?></h3>
-<?= wf_feld('ma_ein') ?><?= wf_feld('ma_land') ?><?= wf_feld('ma_emma') ?>
+<div class="sm-warnung"><?= wd_e(wd_t('TEXT.MA_NUR_AUSSEN')) ?></div>
+<div class="sm-hilfe"><?= wd_e(wd_t('Q2.MA_BED')) ?></div>
+<?= wf_feld('ma_ein') ?><?= wf_feld('ma_land') ?>
+<div class="sm-feld" id="wd-ma-suche"><button data-role="none" class="sm-btn sm-b-lesen" type="submit" name="ma_suchen" value="1"><?= wd_e(wd_t('TEXT.K_MA_SUCHEN')) ?></button>
+<div class="sm-hilfe"><?= wd_e(wd_t('TEXT.MA_HILFE')) ?></div></div>
+<?php if (!empty($wf_hilfe['ma'])) { ?><div class="sm-feld" id="wd-ma-treffer"><input data-role="none" type="hidden" name="ma_wert_land" value="<?= wd_e($wf_hilfe['ma_land']) ?>"><label for="ma_wert"><?= wd_e(wd_t('TEXT.TREFFER')) ?></label><select data-role="none" id="ma_wert" name="ma_wert"><?php foreach ((array) $wf_hilfe['ma'] as $wf_a => $wf_b) { ?><option value="<?= wd_e($wf_a) ?>"><?= wd_e($wf_b . ' (' . $wf_a . ')') ?></option><?php } ?></select>
+<button data-role="none" class="sm-btn sm-b-aktion" type="submit" name="ma_setzen" value="1"><?= wd_e(wd_t('Q2.K_UEBERNEHMEN')) ?></button></div><?php } ?>
+<?= wf_feld('ma_emma') ?>
+<button data-role="none" class="sm-btn sm-b-aktion" type="submit" name="zusatz_speichern" value="1"><?= wd_e(wd_t('TEXT.SPEICHERN')) ?></button>
+</div>
+<div class="sm-step" id="wd-kasten-schluessel">
 <h3 class="sm-h3"><?= wd_e(wd_t('TEXT.H_SCHLUESSEL')) ?></h3>
-<?= wf_feld('ow_ein') ?><?= wf_feld('ow_key') ?><?= wf_feld('wa_ein') ?><?= wf_feld('wa_key') ?><?= wf_feld('vc_ein') ?><?= wf_feld('vc_key') ?><?= wf_feld('tm_ein') ?><?= wf_feld('tm_key') ?><?= wf_feld('mb_ein') ?><?= wf_feld('mb_key') ?>
+<div class="sm-hilfe"><?= wd_e(wd_t('Q2.SCHL_BED')) ?></div>
+<?php foreach (array('ow', 'wa', 'vc', 'tm', 'mb') as $wf_sd) { ?><div class="sm-dienst" id="wd-dienst-<?= $wf_sd ?>"><?= wf_feld($wf_sd . '_ein') ?><?= wf_feld($wf_sd . '_key') ?></div>
+<?php } ?>
+<button data-role="none" class="sm-btn sm-b-aktion" type="submit" name="zusatz_speichern" value="1"><?= wd_e(wd_t('TEXT.SPEICHERN')) ?></button>
+</div>
+<div class="sm-step" id="wd-kasten-wu">
 <h3 class="sm-h3" id="wd-wu"><?= wd_e(wd_t('WU.H')) ?></h3>
 <div class="sm-hinweis"><?= wd_e(wd_t('WU.NUR')) ?> <a href="https://www.wunderground.com/member/api-keys" target="_blank" rel="noopener">www.wunderground.com/member/api-keys</a></div>
 <div class="sm-hilfe"><?= wd_e(wd_t('WU.BRAUCHT_NICHT')) ?></div>
 <ol class="sm-schritte" id="wd-wu-schritte"><li><?= wd_e(wd_t('WU.S1')) ?></li><li><?= wd_e(wd_t('WU.S2')) ?></li><li><?= wd_e(wd_t('WU.S3')) ?></li><li><?= wd_e(wd_t('WU.S4')) ?></li></ol>
 <?= wf_feld('wu_ein') ?><?= wf_feld('wu_station') ?><?= wf_feld('wu_key') ?>
 <div class="sm-hilfe"><?= wd_e(wd_t('WU.TAKT')) ?></div>
-<button data-role="none" class="sm-btn sm-b-aktion" type="submit"><?= wd_e(wd_t('TEXT.SPEICHERN')) ?></button>
+<button data-role="none" class="sm-btn sm-b-aktion" type="submit" name="zusatz_speichern" value="1"><?= wd_e(wd_t('TEXT.SPEICHERN')) ?></button>
+</div>
 </form>
 <h2><?= wd_e(wd_t('TEXT.H_NENNUNG')) ?></h2>
 <ul class="sm-schritte">
@@ -628,17 +679,25 @@ echo ansage_regeln_html(wd_ansage_regeln($wf_cfg), array(), array(), $wf_hooks +
 <div class="sm-legende"><span><i class="sm-punkt sm-b-aktion"></i> <?= wd_e(wd_t('LEGENDE.AKTION')) ?></span></div>
 <form action="index.php" method="post">
 <?= wd_fmt() ?><input data-role="none" type="hidden" name="activetab" value="tab-mqtt"><input data-role="none" type="hidden" name="mqtt_save" value="1">
-<?= wf_feld('mqtt_ein') ?><?= wf_feld('mqtt_topic') ?>
+<?= wf_feld('mqtt_ein') ?><?= wf_feld('mqtt_topic') ?><?= wf_feld('haus_wetter_ein') ?>
 <button data-role="none" class="sm-btn sm-b-aktion" type="submit"><?= wd_e(wd_t('TEXT.SPEICHERN')) ?></button>
 </form>
+<h2 id="wd-haus"><?= wd_e(wd_t('HAUS.H')) ?></h2>
+<div class="sm-hinweis"><?= wd_e(wd_t('HAUS.TEXT')) ?></div>
+<?php list($wf_ho, $wf_ht) = wd_haus_testzeile($wf_cfg); ?><div class="sm-alert <?= $wf_ho === false ? 'sm-warn' : ($wf_ho ? 'sm-ok' : 'sm-info') ?>" id="wd-haus-lage"><?= wd_e($wf_ht) ?></div>
+<?php $wf_hg = array(); foreach (wd_haus_themen() as $wf_ht2 => $wf_hr) { $wf_hs = explode('/', $wf_ht2); $wf_hk2 = $wf_hs[2]; $wf_hg[$wf_hk2]['r'] = $wf_hr; $wf_hg[$wf_hk2]['t'][] = count($wf_hs) > 3 ? $wf_hs[3] : ''; } ?>
+<div class="sm-breit"><table class="sm-tbl" id="wd-haus-themen"><tr><th><?= wd_e(wd_t('HAUS.T_THEMA')) ?></th><th><?= wd_e(wd_t('HAUS.T_BLEIBT')) ?></th><th><?= wd_e(wd_t('HAUS.T_BEDEUTUNG')) ?></th></tr>
+<?php foreach ($wf_hg as $wf_hk2 => $wf_hz) { $wf_hf2 = array_values(array_filter($wf_hz['t'])); ?><tr><td><span class="sm-mono">haus/wetter/<?= wd_e($wf_hk2) ?><?= $wf_hf2 ? '/' . wd_e(implode(' | ', $wf_hf2)) : '' ?></span></td><td><?= wd_e(wd_t($wf_hz['r'] ? 'TEXT.JA' : 'TEXT.NEIN')) ?></td><td class="sm-small"><?= wd_e(wd_t('HAUS.B_' . strtoupper($wf_hk2))) ?></td></tr><?php } ?>
+</table></div>
+<div class="sm-small"><?= wd_e(wd_t('HAUS.LEER')) ?></div>
 <h2><?= wd_e(wd_t('TEXT.H_GATEWAY')) ?></h2>
 <div class="sm-small sm-mono"><?= wd_e(sprintf(wd_t('TEXT.GATEWAY'), (int) $wf_gw)) ?></div>
 <?php list($wf_vo, $wf_vt) = wd_v2_lage($wf_cfg); ?><div class="sm-alert <?= $wf_vo === false ? 'sm-warn' : 'sm-info' ?>"><?= wd_e($wf_vt) ?></div>
 <h2><?= wd_e(wd_t('TEXT.H_THEMEN')) ?></h2>
-<div class="sm-breit"><table class="sm-tbl" id="wd-hakenliste"><tr><th>#</th><th><?= wd_e(wd_t('TEXT.T_THEMA')) ?></th><th><?= wd_e(wd_t('TEXT.T_NAME')) ?></th><th><?= wd_e(wd_t('TEXT.T_RETAIN')) ?></th><th><?= wd_e(wd_t('TEXT.T_NC')) ?></th><th><?= wd_e(wd_t('TEXT.T_PFLICHT')) ?></th><th><?= wd_e(wd_t('TEXT.T_BEDEUTUNG')) ?></th></tr>
+<div class="sm-breit sm-passt"><table class="sm-tbl" id="wd-hakenliste"><colgroup><col style="width:5%"><col style="width:25%"><col style="width:23%"><col style="width:8%"><col style="width:9%"><col style="width:10%"><col style="width:20%"></colgroup><tr><th>#</th><th><?= wd_e(wd_t('TEXT.T_THEMA')) ?></th><th><?= wd_e(wd_t('TEXT.T_NAME')) ?></th><th><?= wd_e(wd_t('TEXT.T_RETAIN')) ?></th><th><?= wd_e(wd_t('TEXT.T_NC')) ?></th><th><?= wd_e(wd_t('TEXT.T_PFLICHT')) ?></th><th><?= wd_e(wd_t('TEXT.T_BEDEUTUNG')) ?></th></tr>
 <?php foreach ($wf_hk as $wf_i => $wf_h) { ?><tr><td><?= (int) $wf_i + 1 ?></td><td><span class="sm-mono"><?= wd_e($wf_h['thema']) ?></span></td><td><span class="sm-mono"><?= wd_e($wf_h['name']) ?></span></td><td><?= wd_e(wd_t($wf_h['retain'] ? 'TEXT.JA' : 'TEXT.NEIN')) ?></td><td><?= wd_e(wd_t($wf_h['nc'] ? 'TEXT.JA' : 'TEXT.NEIN')) ?></td><td><?= wd_e(wd_t($wf_h['pflicht'] === 'P' ? 'TEXT.PFLICHT' : 'TEXT.WAHL')) ?></td><td class="sm-small"><?= wd_e($wf_h['text']) ?></td></tr><?php } ?>
 </table></div>
-<div class="sm-small"><?= wd_e(wd_t('TEXT.MQTT_FUSS')) ?></div>
+<div class="sm-small"><?= wd_e(wd_t('TEXT.MQTT_PFLICHT')) ?> <?= wd_e(wd_t('TEXT.MQTT_FUSS')) ?></div>
 </div>
 
 <!-- Einbindung in Loxone -->
@@ -654,11 +713,14 @@ echo ansage_regeln_html(wd_ansage_regeln($wf_cfg), array(), array(), $wf_hooks +
 <h2><?= wd_e(wd_t('EINB.H_TABELLE')) ?></h2>
 <div class="sm-small"><?= wd_e(wd_t('EINB.TABELLE_HILFE')) ?></div>
 <div class="sm-hilfe"><?= wd_e(wd_t('EINB.MUSTERPROJEKT')) ?> <a href="https://github.com/timanders22/LoxBerry-Plugins-Musterprojekt" target="_blank" rel="noopener">LoxBerry-Plugins Musterprojekt</a></div>
-<?php foreach (wd_bausteinliste($wf_cfg) as $wf_st_titel => $wf_zl) { ?><h3 class="sm-h3"><?= wd_e(sprintf(wd_t('EINB.H_SEITE'), $wf_st_titel)) ?></h3>
-<div class="sm-breit"><table class="sm-tbl wd-musterprojekt"><tr><th><?= wd_e(wd_t('EINB.T_NR')) ?></th><th><?= wd_e(wd_t('EINB.T_BAUSTEIN')) ?></th><th><?= wd_e(wd_t('EINB.T_NAME')) ?></th><th><?= wd_e(wd_t('EINB.T_PARAMETER')) ?></th><th><?= wd_e(wd_t('EINB.T_VERBINDEN')) ?></th></tr>
+<?php $wf_bilder = array('einbindung_weatherdata.png', 'einbindung_weatherdata_werte.png'); $wf_bi = 0; foreach (wd_bausteinliste($wf_cfg) as $wf_st_titel => $wf_zl) { ?><h3 class="sm-h3"><?= wd_e(sprintf(wd_t('EINB.H_SEITE'), $wf_st_titel)) ?></h3>
+<div class="sm-breit"><table class="sm-tbl"><tr><th><?= wd_e(wd_t('EINB.T_NR')) ?></th><th><?= wd_e(wd_t('EINB.T_BAUSTEIN')) ?></th><th><?= wd_e(wd_t('EINB.T_NAME')) ?></th><th><?= wd_e(wd_t('EINB.T_PARAMETER')) ?></th><th><?= wd_e(wd_t('EINB.T_VERBINDEN')) ?></th></tr>
 <?php foreach ($wf_zl as $wf_z) { ?><tr><td><?= (int) $wf_z[0] ?></td><td><?= wd_e($wf_z[1]) ?></td><td><span class="sm-mono"><?= wd_e($wf_z[2]) ?></span></td><td class="sm-small"><?= wd_e($wf_z[3]) ?></td><td class="sm-small"><?= wd_e($wf_z[4]) ?></td></tr><?php } ?>
-</table></div><?php } ?>
-<div class="sm-hinweis" id="wd-bilder-folgen"><?= wd_e(wd_t('EINB.BILDER_FOLGEN')) ?></div>
+</table></div>
+<?php if (isset($wf_bilder[$wf_bi]) && is_file(__DIR__ . '/' . $wf_bilder[$wf_bi])) { ?><figure class="sm-bild" id="wd-bild-<?= (int) $wf_bi + 1 ?>">
+<img src="<?= wd_e($wf_bilder[$wf_bi]) ?>" alt="<?= wd_e(sprintf(wd_t('EINB.BILD_ALT'), $wf_st_titel)) ?>" loading="lazy">
+<figcaption><?= wd_e(sprintf(wd_t('EINB.BILD_UNTERSCHRIFT'), $wf_st_titel)) ?></figcaption>
+</figure><?php } $wf_bi++; } ?>
 <h2><?= wd_e(wd_t('EINB.H_W4L')) ?></h2>
 <div class="sm-hilfe"><?= wd_e(wd_t('EINB.W4L_HILFE')) ?></div>
 <div class="sm-breit"><table class="sm-tbl"><tr><th><?= wd_e(wd_t('EINB.T_ALT')) ?></th><th><?= wd_e(wd_t('EINB.T_NEU')) ?></th></tr>

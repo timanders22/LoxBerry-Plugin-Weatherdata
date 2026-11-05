@@ -225,6 +225,15 @@ function wd_herkunft_name($h)
     return strpos($n, 'QUELLE.') === 0 ? $h : $n;
 }
 
+/** 0.9.8: Einheit eines Jetzt-Werts fuer die Anzeige (aus der Thementabelle, lesbar). */
+function wd_vergleich_einheit($k)
+{
+    $t = wd_mqtt_tabelle();
+    $e = isset($t['jetzt/' . $k]) ? (string) $t['jetzt/' . $k][6] : '';
+    $m = array('C' => '°C', 'Grad' => '°', 'W/m2' => 'W/m²');
+    return isset($m[$e]) ? $m[$e] : $e;
+}
+
 /** Herkunft der gefuehlten Temperatur: Rechnung aus der Herkunft der Lufttemperatur, mit der Art in Worten (nicht "luft"). */
 function wd_gefuehlt_herkunft(array $st)
 {
@@ -235,12 +244,13 @@ function wd_gefuehlt_herkunft(array $st)
 }
 
 /**
- * Schwellen fuer "deutlich anders" je Groesse. null = nicht markieren: Der Druck der Station ist meist auf Meereshoehe umgerechnet,
- * der von Open-Meteo gilt in Ortshoehe (surface_pressure); Windrichtung und "regnet" sind keine Betraege.
+ * Schwellen fuer "deutlich anders" je Groesse. null = nicht markieren: Windrichtung und "regnet" sind keine Betraege.
+ * 0.9.8: Druck 3 hPa, nur gegen pressure_msl von Open-Meteo (dienst_druck_msl); Stationen zeigen meist den auf Meereshoehe umgerechneten
+ * (relativen) Druck. Groessere Abweichungen kommen eher von einer falsch eingestellten Hoehe oder dem absoluten Wert als vom Wetter.
  */
 function wd_vergleich_schwellen()
 {
-    return array('temp_c' => 3.0, 'rf_pct' => 15.0, 'taupunkt_c' => 3.0, 'druck_hpa' => null, 'wind_kmh' => 15.0, 'boe_kmh' => 25.0, 'windrichtung_grad' => null,
+    return array('temp_c' => 3.0, 'rf_pct' => 15.0, 'taupunkt_c' => 3.0, 'druck_hpa' => 3.0, 'wind_kmh' => 15.0, 'boe_kmh' => 25.0, 'windrichtung_grad' => null,
         'regen_mmh' => 2.0, 'regnet' => null, 'strahlung_wm2' => 300.0, 'uv' => 2.0);
 }
 
@@ -255,8 +265,14 @@ function wd_vergleich(array $st)
         $e = (in_array($her, array('station', 'wunderground', 'loxone'), true) && is_numeric($v)) ? (float) $v : null;
         $d = (isset($dn[$k]) && is_numeric($dn[$k])) ? (float) $dn[$k] : null;
         $ab = ($e === null || $d === null) ? null : $e - $d;
-        if ($ab !== null && $k === 'windrichtung_grad') { $ab = fmod($ab + 540.0, 360.0) - 180.0; }
-        $deut = ($ab === null || !array_key_exists($k, $sw) || $sw[$k] === null) ? null : (abs($ab) >= $sw[$k]);
+        if ($ab !== null && $k === 'windrichtung_grad') {
+            // 0.9.8: kuerzester Winkel (0 bis 180 Grad); bei Windstille (Station oder Dienst unter 2 km/h) hat die Richtung keine Aussage.
+            $we = $jw['wind_kmh'] ?? null; $wdn = $dn['wind_kmh'] ?? null;
+            $ab = (!is_numeric($we) || !is_numeric($wdn) || (float) $we < 2.0 || (float) $wdn < 2.0) ? null : abs(fmod($ab + 540.0, 360.0) - 180.0);
+        }
+        $schw = array_key_exists($k, $sw) ? $sw[$k] : null;
+        if ($k === 'druck_hpa' && empty($st['dienst_druck_msl'])) { $schw = null; }     // nur Meereshoehe gegen Meereshoehe
+        $deut = ($ab === null || $schw === null) ? null : (abs($ab) >= $schw);
         $o[$k] = array($e, $d, $ab === null ? null : round($ab, 1), $deut);
     }
     return $o;
