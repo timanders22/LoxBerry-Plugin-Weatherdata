@@ -204,6 +204,13 @@ if ($wf_post && isset($_POST['token_neu'])) {
 foreach (array('save', 'quellen_save', 'zusatz_save', 'warn_save', 'mqtt_save', 'emu_save', 'lox_save') as $wf_form) {
     if (!$wf_post || !isset($_POST[$wf_form])) { continue; }
     $wf_alt = wd_config(); $wf_neu = $wf_alt; $wf_bean = array(); $wf_werte = array(); $wf_ziele_post = null;
+    // 0.9.9: beide Zahlen aus der Karte zusammen ins Feld Breitengrad kopiert ("48.13726, 11.57549") - hier aufteilen. Beide mit
+    // Dezimalpunkt, sonst wuerde eine einzelne Zahl mit Dezimalkomma ("51,3") still in 51 und 3 zerlegt.
+    if ($wf_form === 'save' && isset($_POST['lat']) && is_string($_POST['lat'])
+        && preg_match('/^\s*(-?\d{1,3}\.\d+)\s*[,;\/ ]\s*(-?\d{1,3}\.\d+)\s*\z/', $_POST['lat'], $wf_pm)
+        && (!isset($_POST['lon']) || !is_string($_POST['lon']) || trim($_POST['lon']) === '' || trim($_POST['lon']) === $wf_pm[2])) {
+        $_POST['lat'] = $wf_pm[1]; $_POST['lon'] = $wf_pm[2];
+    }
     foreach (wd_felder() as $wf_k => $wf_f) {
         if ($wf_f[0] !== $wf_form) { continue; }
         if ($wf_f[1] === 'h') { $wf_neu[$wf_k] = isset($_POST[$wf_k]) ? 1 : 0; $wf_werte[$wf_k] = $wf_neu[$wf_k] ? '1' : '0'; continue; }
@@ -381,6 +388,9 @@ if ($wf_frame) { LBWeb::lbheader('Weatherdata', 'https://wiki.loxberry.de/plugin
 #wd-hakenliste { table-layout: fixed; width: 100%; min-width: 0; }
 #wd-hakenliste td, #wd-hakenliste th { overflow-wrap: anywhere; word-break: normal; vertical-align: top; }
 .sm-breit.sm-passt::before { content: none; }
+/* 0.9.9: Musterseiten- und Thementabelle passen in die Seitenbreite (kein Schieberegler ganz unten); lange Adressen brechen um. */
+.sm-tbl.sm-fest { table-layout: fixed; width: 100%; min-width: 0; }
+.sm-tbl.sm-fest td, .sm-tbl.sm-fest th { overflow-wrap: anywhere; word-break: normal; vertical-align: top; }
 .sm-wrap .sm-btn, .sm-wrap a.sm-btn, .sm-wrap button { text-shadow: none !important; box-shadow: none !important; }
 .sm-wrap a.sm-btn, .sm-wrap a.sm-btn:visited, .sm-wrap a.sm-btn:hover { color: #fff !important; text-decoration: none; }
 
@@ -686,7 +696,7 @@ echo ansage_regeln_html(wd_ansage_regeln($wf_cfg), array(), array(), $wf_hooks +
 <div class="sm-hinweis"><?= wd_e(wd_t('HAUS.TEXT')) ?></div>
 <?php list($wf_ho, $wf_ht) = wd_haus_testzeile($wf_cfg); ?><div class="sm-alert <?= $wf_ho === false ? 'sm-warn' : ($wf_ho ? 'sm-ok' : 'sm-info') ?>" id="wd-haus-lage"><?= wd_e($wf_ht) ?></div>
 <?php $wf_hg = array(); foreach (wd_haus_themen() as $wf_ht2 => $wf_hr) { $wf_hs = explode('/', $wf_ht2); $wf_hk2 = $wf_hs[2]; $wf_hg[$wf_hk2]['r'] = $wf_hr; $wf_hg[$wf_hk2]['t'][] = count($wf_hs) > 3 ? $wf_hs[3] : ''; } ?>
-<div class="sm-breit"><table class="sm-tbl" id="wd-haus-themen"><tr><th><?= wd_e(wd_t('HAUS.T_THEMA')) ?></th><th><?= wd_e(wd_t('HAUS.T_BLEIBT')) ?></th><th><?= wd_e(wd_t('HAUS.T_BEDEUTUNG')) ?></th></tr>
+<div class="sm-breit sm-passt"><table class="sm-tbl sm-fest" id="wd-haus-themen"><colgroup><col style="width:34%"><col style="width:14%"><col style="width:52%"></colgroup><tr><th><?= wd_e(wd_t('HAUS.T_THEMA')) ?></th><th><?= wd_e(wd_t('HAUS.T_BLEIBT')) ?></th><th><?= wd_e(wd_t('HAUS.T_BEDEUTUNG')) ?></th></tr>
 <?php foreach ($wf_hg as $wf_hk2 => $wf_hz) { $wf_hf2 = array_values(array_filter($wf_hz['t'])); ?><tr><td><span class="sm-mono">haus/wetter/<?= wd_e($wf_hk2) ?><?= $wf_hf2 ? '/' . wd_e(implode(' | ', $wf_hf2)) : '' ?></span></td><td><?= wd_e(wd_t($wf_hz['r'] ? 'TEXT.JA' : 'TEXT.NEIN')) ?></td><td class="sm-small"><?= wd_e(wd_t('HAUS.B_' . strtoupper($wf_hk2))) ?></td></tr><?php } ?>
 </table></div>
 <div class="sm-small"><?= wd_e(wd_t('HAUS.LEER')) ?></div>
@@ -714,7 +724,7 @@ echo ansage_regeln_html(wd_ansage_regeln($wf_cfg), array(), array(), $wf_hooks +
 <div class="sm-small"><?= wd_e(wd_t('EINB.TABELLE_HILFE')) ?></div>
 <div class="sm-hilfe"><?= wd_e(wd_t('EINB.MUSTERPROJEKT')) ?> <a href="https://github.com/timanders22/LoxBerry-Plugins-Musterprojekt" target="_blank" rel="noopener">LoxBerry-Plugins Musterprojekt</a></div>
 <?php $wf_bilder = array('einbindung_weatherdata.png', 'einbindung_weatherdata_werte.png'); $wf_bi = 0; foreach (wd_bausteinliste($wf_cfg) as $wf_st_titel => $wf_zl) { ?><h3 class="sm-h3"><?= wd_e(sprintf(wd_t('EINB.H_SEITE'), $wf_st_titel)) ?></h3>
-<div class="sm-breit"><table class="sm-tbl"><tr><th><?= wd_e(wd_t('EINB.T_NR')) ?></th><th><?= wd_e(wd_t('EINB.T_BAUSTEIN')) ?></th><th><?= wd_e(wd_t('EINB.T_NAME')) ?></th><th><?= wd_e(wd_t('EINB.T_PARAMETER')) ?></th><th><?= wd_e(wd_t('EINB.T_VERBINDEN')) ?></th></tr>
+<div class="sm-breit sm-passt"><table class="sm-tbl sm-fest"><colgroup><col style="width:5%"><col style="width:17%"><col style="width:21%"><col style="width:35%"><col style="width:22%"></colgroup><tr><th><?= wd_e(wd_t('EINB.T_NR')) ?></th><th><?= wd_e(wd_t('EINB.T_BAUSTEIN')) ?></th><th><?= wd_e(wd_t('EINB.T_NAME')) ?></th><th><?= wd_e(wd_t('EINB.T_PARAMETER')) ?></th><th><?= wd_e(wd_t('EINB.T_VERBINDEN')) ?></th></tr>
 <?php foreach ($wf_zl as $wf_z) { ?><tr><td><?= (int) $wf_z[0] ?></td><td><?= wd_e($wf_z[1]) ?></td><td><span class="sm-mono"><?= wd_e($wf_z[2]) ?></span></td><td class="sm-small"><?= wd_e($wf_z[3]) ?></td><td class="sm-small"><?= wd_e($wf_z[4]) ?></td></tr><?php } ?>
 </table></div>
 <?php if (isset($wf_bilder[$wf_bi]) && is_file(__DIR__ . '/' . $wf_bilder[$wf_bi])) { ?><figure class="sm-bild" id="wd-bild-<?= (int) $wf_bi + 1 ?>">

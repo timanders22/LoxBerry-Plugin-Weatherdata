@@ -723,6 +723,8 @@ function wd_auswahl_liste($k)
 function wd_feld_verweise()
 {
     return array(
+        'lat' => array(array('https://mapatlas.eu/de/tools/coordinates', 'VERWEIS.KARTE')),     // 0.9.9: Karte fuer Laien (Adresse suchen, Dezimalgrad kopieren; Hausherr 06.11.)
+        'fassade_az' => array(array('https://azimut.polka-umwelt.de/', 'VERWEIS.AZIMUT')),     // 0.9.9: Ausrichtung im Luftbild messen (gleiche Zaehlweise: 0 Sued; Hausherr 06.11.)
         'om_apikey' => array(array('https://open-meteo.com/en/pricing', 'VERWEIS.OM')),
         'pollen_region' => array(array('https://opendata.dwd.de/climate_environment/health/alerts/s31fg.json', 'VERWEIS.POLLEN')),
         'nina_ars' => array(array('https://www.xrepository.de/details/urn:de:bund:destatis:bevoelkerungsstatistik:schluessel:rs', 'VERWEIS.ARS'), array('https://nina.api.bund.dev/', 'VERWEIS.NINA_API')),

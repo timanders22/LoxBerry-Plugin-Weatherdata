@@ -104,6 +104,13 @@ Dieses Plugin enthält keinen fremden Code. Es liest:
 
 Die Unwetterzentrale ist wegen ihrer Bedingungen bewusst nicht eingebaut. **WetterOnline ist ebenfalls nicht eingebaut, anders als bei Weather4Lox:** Es gibt keine öffentlich dokumentierte Schnittstelle; Weather4Lox nutzt Adressen, die für die WetterOnline-App gedacht sind. Die AGB (Fassung vom 24.02.2025, Ziffer 2) untersagen die unberechtigte Vervielfältigung und Speicherung der Inhalte und verweisen auf eine Anfrage vorab. Das Antwortformat des Emulators ist am öffentlichen Quelltext von Weather4Lox (Apache-2.0, Michael Schlenstedt, Jan Wachsmuth) abgelesen; es ist keine Zeile daraus übernommen. „Loxone“ ist eine Marke ihres Inhabers. Lizenz dieses Plugins: MIT.
 
+## Neu in 0.9.9
+
+- Reiter „Einbindung in Loxone“: Die Tabellen der Musterseiten passen jetzt in die Seitenbreite. Bisher war die letzte Spalte („Eingänge verbinden mit“) nur über einen Schieberegler ganz unten an der Tabelle erreichbar; lange Adressen brechen jetzt um.
+- Reiter MQTT: Die Themenliste „Wetter an andere Plugins geben“ passt ebenso in die Seitenbreite.
+- Standort: Unter dem Feld „Breitengrad“ steht ein Link zu einer Karte (mapatlas.eu). Dort die Adresse eingeben und die Zahlen unter „Dezimalgrad“ kopieren. Beide Zahlen dürfen auch zusammen ins Feld Breitengrad kopiert werden („50.123, 8.456“); das Plugin teilt sie beim Speichern auf.
+- Ausrichtung der Hauswände (Reiter Quellen, Feld „Ausrichtungen“): Link zum Azimut-Werkzeug von Polka Umwelt. Dort die Hauswand im Luftbild nachfahren; die angezeigte Gradzahl (Abweichung von Süden) gilt hier unverändert.
+
 ## Neu in 0.9.8
 
 Am Gerät und an einem echten Broker nicht gemessen; gegen einen Prüf-Broker (MQTT 3.1.1 mit Retain-Speicher) gefahren.
