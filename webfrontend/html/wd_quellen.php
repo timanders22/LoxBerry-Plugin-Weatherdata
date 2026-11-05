@@ -75,9 +75,9 @@ function wd_om_url($c)
     if ($pos === null) { return ''; }
     $key = trim((string) $c['om_apikey']);
     $u = ($key !== '' ? 'https://customer-api.open-meteo.com' : 'https://api.open-meteo.com') . '/v1/forecast?latitude=' . $pos[0] . '&longitude=' . $pos[1]
-       . '&timezone=auto&forecast_days=4&past_hours=1&wind_speed_unit=kmh'
+       . '&timezone=auto&forecast_days=' . (!empty($c['emu_ein']) ? 8 : 4) . '&past_hours=1&wind_speed_unit=kmh'
        . '&current=temperature_2m,relative_humidity_2m,dew_point_2m,surface_pressure,wind_speed_10m,wind_gusts_10m,wind_direction_10m,precipitation,shortwave_radiation,uv_index,weather_code'
-       . '&hourly=temperature_2m,relative_humidity_2m,precipitation,precipitation_probability,snowfall,wind_speed_10m,wind_gusts_10m,shortwave_radiation,uv_index,weather_code'
+       . '&hourly=temperature_2m,relative_humidity_2m,precipitation,precipitation_probability,snowfall,wind_speed_10m,wind_gusts_10m,shortwave_radiation,uv_index,weather_code' . (!empty($c['emu_ein']) ? ',wind_direction_10m,pressure_msl,cloud_cover_low,cloud_cover_mid,cloud_cover_high' : '')
        . '&daily=temperature_2m_max,temperature_2m_min,weather_code';
     return $key !== '' ? $u . '&apikey=' . rawurlencode($key) : $u;
 }
@@ -93,7 +93,8 @@ function wd_om_lesen($roh)
     $w = function ($k, $i) use ($h) { return (isset($h[$k][$i]) && is_numeric($h[$k][$i])) ? (float) $h[$k][$i] : null; };
     foreach ($h['time'] as $i => $t) {
         $std[] = array('ts' => $zt($t), 't' => $w('temperature_2m', $i), 'rf' => $w('relative_humidity_2m', $i), 'regen' => $w('precipitation', $i), 'regen_w' => $w('precipitation_probability', $i),
-            'schnee' => $w('snowfall', $i), 'wind' => $w('wind_speed_10m', $i), 'boe' => $w('wind_gusts_10m', $i), 'solar' => $w('shortwave_radiation', $i), 'uv' => $w('uv_index', $i));
+            'schnee' => $w('snowfall', $i), 'wind' => $w('wind_speed_10m', $i), 'boe' => $w('wind_gusts_10m', $i), 'solar' => $w('shortwave_radiation', $i), 'uv' => $w('uv_index', $i),
+            'code' => $w('weather_code', $i), 'richt' => $w('wind_direction_10m', $i), 'druck' => $w('pressure_msl', $i), 'wo1' => $w('cloud_cover_low', $i), 'wo2' => $w('cloud_cover_mid', $i), 'wo3' => $w('cloud_cover_high', $i));
     }
     $tage = array();
     foreach ($d['daily']['time'] as $i => $t) {
@@ -431,7 +432,7 @@ function wd_zustand(array $c, $station, $jetzt)
         $q[$d] = array('ein' => !empty($c[$h]), 'alter_s' => $alter, 'meldung' => $m['meldung'], 'fehl' => (int) $m['fehl']);
     }
     $om_grenze = (int) $c['prog_max_alter_min'] * 60; $warn_grenze = (int) $c['warn_max_alter_min'] * 60;
-    foreach (array_keys(wd_prog_quellen()) as $d) { $q[$d]['ok'] = $q[$d]['ein'] && $q[$d]['alter_s'] !== null && $q[$d]['alter_s'] <= $om_grenze; }
+    foreach (array_keys(wd_prog_quellen()) as $d) { $q[$d]['ok'] = $q[$d]['ein'] && $q[$d]['alter_s'] !== null && $q[$d]['alter_s'] <= ($d === 'wttr' ? max($om_grenze, (wd_wttr_takt_min() + 30) * 60) : $om_grenze); }
     foreach (array('luft' => 180, 'pollen' => 2880, 'radar' => 20, 'nina' => 30, 'meteoalarm' => 60) as $d => $g) { $q[$d]['ok'] = $q[$d]['ein'] && $q[$d]['alter_s'] !== null && $q[$d]['alter_s'] <= $g * 60; }
     $q['dwd']['ok'] = $q['dwd']['ein'] && $q['dwd']['alter_s'] !== null && $q['dwd']['alter_s'] <= $warn_grenze;
     $q['brightsky']['ok'] = $q['brightsky']['ein'] && $q['brightsky']['alter_s'] !== null && $q['brightsky']['alter_s'] <= $warn_grenze;
@@ -443,6 +444,7 @@ function wd_zustand(array $c, $station, $jetzt)
     $st['prog_ok'] = is_array($prog) && isset($prog['stunden']);
     $std = $st['prog_ok'] ? $prog['stunden'] : array();
     $st['prog'] = $st['prog_ok'] ? wd_prog_fenster($std, $jetzt) : array();
+    $st['prog_stunden'] = $std;      // nur fuer den Emulator; wd_lauf_sperrt nimmt es vor dem Schreiben heraus
     $st['tage'] = array();
     if ($st['prog_ok']) {
         $heute = date('Y-m-d', $jetzt);
@@ -712,6 +714,8 @@ function wd_lauf_sperrt($zwingen)
     if (is_array($station) && wd_bilanz_faellig($jetzt)) { wd_bilanz_rechnen($station['temp_c'], $jetzt); }
     $st = wd_zustand($c, $station, $jetzt);
     wd_warn_zaehlen($st);
+    wd_emu_schreiben($c, $st['prog_stunden'], $jetzt);
+    unset($st['prog_stunden']);
     wd_json_schreiben(wd_tmpdir() . '/zustand.json', $st);
     $werte = wd_werte($st, $c, wd_zaehler());
     $sig = md5((string) json_encode(array_diff_key($werte, array('status/ts' => 1, 'status/zaehler' => 1, 'quelle/open_meteo/alter_s' => 1, 'quelle/dwd/alter_s' => 1, 'quelle/brightsky/alter_s' => 1, 'quelle/station/alter_s' => 1, 'warnung/beginn_min' => 1))));
@@ -829,6 +833,16 @@ function wd_selbsttest()
     $lt = $capl('X', 'Immediate', array('THUNDERSTORM'), 'A7'); $l12 = $capl('X', 'Immediate', array('WIND'), '12a');
     $ot = wd_lagen_ordnen(array(array('status' => 'Actual', 'id' => 'z', 'beginn' => $j, 'ende' => $j + 900) + $lt), $j);
     $zeile(wd_t('PRUEF.II_TEXT'), $lt['ii'] === 0 && $l12['ii'] === 0 && wd_ii_zahl('52') === 52 && wd_ii_zahl(array()) === 0 && count($ot) === 1 && $ot[0]['klasse'] === 'gewitter' && wd_warn_name($ot[0], 'de') === 'Gewitter');
+    // wttr.in: Schritte werden Stunden, eine Antwort von anderswo zaehlt nicht
+    $ws = array(); foreach (array(0, 300, 600, 900, 1200, 1500, 1800, 2100) as $wz) { $ws[] = array('time' => (string) $wz, 'tempC' => (string) ($wz / 100), 'humidity' => '50', 'windspeedKmph' => '10', 'WindGustKmph' => '20', 'precipMM' => '3.0', 'chanceofrain' => '40', 'uvIndex' => '1'); }
+    $wj = json_encode(array('nearest_area' => array(array('latitude' => '50.1', 'longitude' => '10.1')), 'weather' => array(array('date' => '2030-06-01', 'hourly' => $ws))));
+    $wa = wd_wttr_lesen($wj, 50.0, 10.0);
+    $zeile(wd_t('PRUEF.WTTR'), is_array($wa) && count($wa['stunden']) === 24 && $nah($wa['stunden'][4]['t'], 4) && $nah($wa['stunden'][4]['regen'], 1) && wd_wttr_lesen($wj, 20.0, 10.0) === null && wd_wttr_lesen('Unknown location', 50.0, 10.0) === null);
+    // Emulator: Format 1, Lage nur aus der Anfrage
+    $es = wd_emu_stunden(array(array('ts' => $j2, 't' => 10.0, 'rf' => 60.0, 'wind' => 8.0, 'boe' => 20.0, 'regen' => 0.0, 'regen_w' => 5.0, 'solar' => 100.0)), array(array('ts' => $j2, 'code' => 3)), $j);
+    $ea = wd_emu_antwort(array('std' => $es), array('coord' => '1.5,2.5', 'asl' => '115'), $j); $eb = wd_emu_antwort(array('std' => $es), array(), $j);
+    $ez = array_values(array_filter(explode("\n", $ea), function ($x) { return strpos($x, ";\t") !== false; }));
+    $zeile(wd_t('PRUEF.EMU'), count($ez) === 1 && count(explode(';', rtrim($ez[0], ';'))) === 19 && strpos($ea, ';-;1.5;2.5;115;-;') !== false && strpos($eb, ';-;0;0;0;-;') !== false && $es[0]['l'] === 22 && wd_emu_koord('1,2;x') === null);
     // Retain: nur fassung
     $ret = array(); foreach (wd_mqtt_tabelle() as $t => $f) { if ($f[2]) { $ret[] = $t; } }
     $zeile(wd_t('PRUEF.RETAIN'), $ret === array('fassung'), implode(', ', $ret));

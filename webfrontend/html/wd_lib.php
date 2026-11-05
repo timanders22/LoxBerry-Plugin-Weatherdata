@@ -14,6 +14,7 @@ require_once __DIR__ . '/sprachausgabe.php';
 require_once __DIR__ . '/wd_rechnen.php';
 require_once __DIR__ . '/wd_quellen.php';
 require_once __DIR__ . '/wd_mehr.php';
+require_once __DIR__ . '/wd_emu.php';
 
 if (!function_exists('lb_wurzel_ermitteln')) {
     function lb_wurzel_ermitteln()
@@ -115,6 +116,7 @@ function wd_felder()
         'station_host2' => array('quellen_save', 'host', '', 0, 0),
         'mosmix_ein' => array('quellen_save', 'h', 1, 0, 0),
         'met_ein' => array('quellen_save', 'h', 1, 0, 0),
+        'wttr_ein' => array('quellen_save', 'h', 0, 0, 0),
         'bias_ein' => array('quellen_save', 'h', 0, 0, 0),
         'fassade_ein' => array('quellen_save', 'h', 0, 0, 0),
         'fassade_az' => array('quellen_save', 'azliste', '0,-90,90,180', 0, 0),
@@ -161,6 +163,8 @@ function wd_felder()
         'ansage_sprache' => array('warn_save', 'a', 'de', array('de', 'en'), 0),
         'mqtt_ein' => array('mqtt_save', 'h', 1, 0, 0),
         'mqtt_topic' => array('mqtt_save', 'thema', 'weatherdata', 0, 0),
+        'emu_ein' => array('emu_save', 'h', 0, 0, 0),
+        'emu_nur_ms' => array('emu_save', 'h', 1, 0, 0),
     );
 }
 
@@ -370,7 +374,7 @@ function wd_log_sauber($t)
     foreach (is_array($c) ? array('lat', 'lon', 'warnzelle', 'om_apikey', 'ow_key', 'wa_key', 'vc_key', 'tm_key', 'mb_key', 'station_host1', 'station_host2', 'nina_ars', 'pollen_region', 'ma_emma') : array() as $k) {
         if (isset($c[$k]) && is_scalar($c[$k]) && (string) $c[$k] !== '') { $t = str_replace((string) $c[$k], '***', $t); }
     }
-    $t = preg_replace('/(latitude|longitude|lat|lon|apikey|appid|key|warn_cell_id)=[^&\s]+/', '$1=***', $t);
+    $t = preg_replace('/(latitude|longitude|lat|lon|apikey|appid|key|warn_cell_id|coord|user)=[^&\s]+/', '$1=***', $t);
     return str_replace(array("\r", "\n"), ' ', $t);
 }
 
@@ -486,7 +490,7 @@ function wd_mqtt_tabelle()
         'status/zaehler' => array('z', 1, 0, 'P', 0, 999, ''),
     );
     foreach (array_keys(wd_quellen_liste()) as $d) {
-        $t['quelle/' . $d . '/ok'] = array('z', 1, 0, 'P', 0, 1, '');
+        $t['quelle/' . $d . '/ok'] = array('z', 1, 0, $d === 'wttr' ? 'W' : 'P', 0, 1, '');      // ab 0.9.4 ab Werk aus: kein neuer Pflichthaken fuer bestehende Anlagen
         $t['quelle/' . $d . '/alter_s'] = array('z', 0, 0, 'W', 0, 1000000, 's');
     }
     $t += array(
@@ -641,7 +645,7 @@ function wd_gateway_fassung()
  * Fuer bin/healthcheck: array(Status, Text). 3 Fehler, 4 Warnung, 5 in Ordnung, 6 Hinweis. Nur lesen, deshalb nicht wd_config():
  * die heilt aus der Zweitschrift. Die Texte nennen weder Standort noch Warnzelle noch Adressen.
  */
-function wd_gesundheit($jetzt = null)
+function wd_gesundheit($jetzt = null, $etc = '/etc/apache2')
 {
     $jetzt = $jetzt === null ? time() : (int) $jetzt;
     $p = wd_paths();
@@ -672,6 +676,10 @@ function wd_gesundheit($jetzt = null)
         if (!empty($q[$k]['ein']) && empty($q[$k]['ok'])) {
             return array(4, sprintf(wd_t('GESUND.QUELLE'), $n));
         }
+    }
+    $em = wd_emu_gesund($c, $jetzt, $etc);
+    if ($em !== null) {
+        return array($em[0], $em[2] !== '' ? sprintf(wd_t($em[1]), $em[2]) : wd_t($em[1]));
     }
     list($v2) = wd_v2_lage($c);
     if ($v2 === false) {
@@ -788,7 +796,8 @@ function wd_sicherung_lesen($roh, $geltend = null)
     }
     if ($n === 0) { $mangel[] = wd_t('SICH.LEER'); }
     $fehlt = array();
-    foreach (array_keys(wd_vorgaben()) as $k) { if (!array_key_exists($k, $d)) { $fehlt[] = $k; } }
+    // Felder, die eine Sicherung von vor 0.9.4 nicht kennen kann, gelten mit ihrer Vorgabe; alles andere muss da sein.
+    foreach (array_keys(wd_vorgaben()) as $k) { if (!array_key_exists($k, $d) && !in_array($k, array('wttr_ein', 'emu_ein', 'emu_nur_ms'), true)) { $fehlt[] = $k; } }
     if ($fehlt) { $mangel[] = sprintf(wd_t('SICH.FEHLEND'), count($fehlt), implode(', ', $fehlt)); }
     if (trim((string) $neu['aktionstoken']) === '') { $mangel[] = wd_t('SICH.TOKEN_LEER'); }
     return array($mangel ? null : $neu, $mangel, $n, $hin);

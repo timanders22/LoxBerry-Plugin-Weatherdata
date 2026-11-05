@@ -135,7 +135,7 @@ if ($wf_post && isset($_POST['token_neu'])) {
     if (wd_config_speichern($wf_c)) { wd_zweitschrift($wf_c); $wf_note = wd_t('MELD.TOKEN_NEU'); } else { $wf_err = wd_t('MELD.SPEICHERN_FEHL'); }
 }
 // ---------- Speichern, je Formular ein Teil der Feldtabelle ----------
-foreach (array('save', 'quellen_save', 'warn_save', 'mqtt_save') as $wf_form) {
+foreach (array('save', 'quellen_save', 'warn_save', 'mqtt_save', 'emu_save') as $wf_form) {
     if (!$wf_post || !isset($_POST[$wf_form])) { continue; }
     $wf_alt = wd_config(); $wf_neu = $wf_alt; $wf_bean = array(); $wf_werte = array(); $wf_ziele_post = null;
     foreach (wd_felder() as $wf_k => $wf_f) {
@@ -437,7 +437,7 @@ if ($wf_frame) { LBWeb::lbheader('Weatherdata', 'https://wiki.loxberry.de/plugin
 <form action="index.php" method="post">
 <?= wd_fmt() ?><input data-role="none" type="hidden" name="activetab" value="tab-quellen"><input data-role="none" type="hidden" name="quellen_save" value="1">
 <h2><?= wd_e(wd_t('TEXT.H_Q_PROG')) ?></h2>
-<?= wf_feld('om_ein') ?><?= wf_feld('om_apikey') ?><?= wf_feld('mosmix_ein') ?><?= wf_feld('met_ein') ?><?= wf_feld('bias_ein') ?><?= wf_feld('fassade_ein') ?><?= wf_feld('fassade_az') ?>
+<?= wf_feld('om_ein') ?><?= wf_feld('om_apikey') ?><?= wf_feld('mosmix_ein') ?><?= wf_feld('met_ein') ?><?= wf_feld('wttr_ein') ?><?= wf_feld('bias_ein') ?><?= wf_feld('fassade_ein') ?><?= wf_feld('fassade_az') ?>
 <h2><?= wd_e(wd_t('TEXT.H_Q_WARN')) ?></h2>
 <?= wf_feld('dwd_ein') ?><?= wf_feld('bs_ein') ?><?= wf_feld('radar_ein') ?>
 <h2><?= wd_e(wd_t('TEXT.H_Q_STATION')) ?></h2>
@@ -459,7 +459,9 @@ if ($wf_frame) { LBWeb::lbheader('Weatherdata', 'https://wiki.loxberry.de/plugin
 <li><?= wd_e(wd_t('NENNUNG.BS')) ?> <a href="https://brightsky.dev/" target="_blank" rel="noopener">brightsky.dev</a></li>
 <li><?= wd_e(wd_t('NENNUNG.MET')) ?> <a href="https://www.met.no/" target="_blank" rel="noopener">met.no</a></li>
 <li><?= wd_e(wd_t('NENNUNG.CAMS')) ?></li>
+<li><?= wd_e(wd_t('NENNUNG.WTTR')) ?> <a href="https://wttr.in/" target="_blank" rel="noopener">wttr.in</a></li>
 </ul>
+<div class="sm-hilfe"><?= wd_e(wd_t('NENNUNG.WO')) ?></div>
 <h2><?= wd_e(wd_t('TEXT.H_BILANZ')) ?></h2>
 <div class="sm-hilfe"><?= wd_e(wd_t('TEXT.BILANZ_HILFE')) ?></div>
 <?php $wf_bi = wd_bilanz_lage(); if (!$wf_bi) { ?><div class="sm-alert sm-info"><?= wd_e(wd_t('TEXT.BILANZ_LEER')) ?></div><?php } else { ?>
@@ -554,6 +556,32 @@ echo ansage_regeln_html(wd_ansage_regeln($wf_cfg), array(), array(), $wf_hooks +
 </table>
 <div class="sm-legende"><span><i class="sm-punkt sm-b-aktion"></i> <?= wd_e(wd_t('LEGENDE.AKTION')) ?></span></div>
 <form action="index.php" method="post"><?= wd_fmt() ?><input data-role="none" type="hidden" name="activetab" value="tab-loxone"><button data-role="none" class="sm-btn sm-b-aktion" type="submit" name="token_neu" value="1"><?= wd_e(wd_t('EINB.K_TOKEN')) ?></button></form>
+<?php $wf_el = wd_emu_lage($wf_cfg); $wf_es = ($wf_p['lbhome'] !== '' ? $wf_p['lbhome'] : '') . '/bin/plugins/' . $wf_p['plugin'] . '/wd_emu_apache.sh'; ?>
+<h2 id="emulator"><?= wd_e(wd_t('EINB.H_EMU')) ?></h2>
+<div class="sm-warnung"><?= wd_e(wd_t('EINB.EMU_WARN')) ?></div>
+<div class="sm-hinweis"><?= wd_e(wd_t('EINB.EMU_WAS')) ?></div>
+<div class="sm-breit"><table class="sm-tbl" id="wd-emu-generation"><tr><th><?= wd_e(wd_t('EINB.EMU_T_GEN')) ?></th><th><?= wd_e(wd_t('EINB.EMU_T_GEHT')) ?></th></tr>
+<tr><td><?= wd_e(wd_t('EINB.EMU_G1')) ?></td><td><?= wd_e(wd_t('EINB.EMU_G1_T')) ?></td></tr>
+<tr><td><?= wd_e(wd_t('EINB.EMU_G2')) ?></td><td><?= wd_e(wd_t('EINB.EMU_G2_T')) ?></td></tr>
+<tr><td><?= wd_e(wd_t('EINB.EMU_G3')) ?></td><td><b><?= wd_e(wd_t('EINB.EMU_G3_T')) ?></b></td></tr>
+</table></div>
+<h3 class="sm-h3"><?= wd_e(wd_t('EINB.EMU_H_SCHRITTE')) ?></h3>
+<ol class="sm-schritte"><?php foreach (array('S1', 'S2', 'S3', 'S4', 'S5', 'S6') as $wf_k) { ?><li><?= wd_e(wd_t('EINB.EMU_' . $wf_k)) ?></li><?php } ?></ol>
+<div class="sm-small sm-mono"><?= wd_e($wf_es) ?> ein</div>
+<div class="sm-small sm-mono"><?= wd_e($wf_es) ?> aus</div>
+<?php if ($wf_el['fremd']) { ?><div class="sm-alert sm-warn"><?= wd_e(sprintf(wd_t('EINB.EMU_FREMD'), implode(', ', $wf_el['fremd']))) ?></div><?php } ?>
+<?php if ($wf_el['w4l']) { ?><div class="sm-alert sm-info"><?= wd_e(sprintf(wd_t('EINB.EMU_W4L'), implode(', ', $wf_el['w4l']))) ?></div><?php } ?>
+<table class="sm-tbl" id="wd-emu-lage"><tr><th><?= wd_e(wd_t('KOPF.EIGENSCHAFT')) ?></th><th><?= wd_e(wd_t('KOPF.WERT')) ?></th></tr>
+<tr><td><?= wd_e(wd_t('FELD.emu_ein')) ?></td><td><?= wd_e(wd_t($wf_el['ein'] ? 'KOPF.EIN' : 'KOPF.AUS')) ?></td></tr>
+<tr><td><?= wd_e(wd_t('EINB.EMU_L_PORT')) ?></td><td><?= wd_e(wd_t($wf_el['vhost'] ? 'TEXT.JA' : 'TEXT.NEIN')) ?></td></tr>
+<tr><td><?= wd_e(wd_t('EINB.EMU_L_DATEN')) ?></td><td><?= (int) $wf_el['stunden'] ?></td></tr>
+<tr><td><?= wd_e(wd_t('EINB.EMU_L_ABRUF')) ?></td><td><?= $wf_el['abruf_ts'] > 0 ? wd_e(date('d.m.Y H:i', $wf_el['abruf_ts'])) : '&ndash;' ?></td></tr>
+</table>
+<div class="sm-legende"><span><i class="sm-punkt sm-b-aktion"></i> <?= wd_e(wd_t('LEGENDE.AKTION')) ?></span></div>
+<form action="index.php" method="post"><?= wd_fmt() ?><input data-role="none" type="hidden" name="activetab" value="tab-loxone"><input data-role="none" type="hidden" name="emu_save" value="1">
+<?= wf_feld('emu_ein') ?><?= wf_feld('emu_nur_ms') ?>
+<button data-role="none" class="sm-btn sm-b-aktion" type="submit"><?= wd_e(wd_t('TEXT.SPEICHERN')) ?></button>
+</form>
 </div>
 
 <!-- Test -->

@@ -6,6 +6,7 @@
  */
 ini_set('display_errors', '0');
 require_once __DIR__ . '/wd_lib.php';
+date_default_timezone_set('Europe/Berlin');      // wie Minutenlauf und Oberflaeche: ?abruf=1 rechnet Ortszeiten (wttr.in)
 header('Content-Type: text/plain; charset=utf-8');
 header('Cache-Control: no-store');
 $wd_c = wd_inhalt_oder_null(wd_paths()['config']);

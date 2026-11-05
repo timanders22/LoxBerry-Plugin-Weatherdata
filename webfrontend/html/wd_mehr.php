@@ -11,13 +11,13 @@
 /** Prognosequellen: Name => array(Schalter, Hat einen Schluessel). open_meteo ist die fuehrende Quelle fuer Strahlung und Wettercode. */
 function wd_prog_quellen()
 {
-    return array('open_meteo' => array('om_ein', 'om_apikey'), 'mosmix' => array('mosmix_ein', ''), 'met' => array('met_ein', ''),
+    return array('open_meteo' => array('om_ein', 'om_apikey'), 'mosmix' => array('mosmix_ein', ''), 'met' => array('met_ein', ''), 'wttr' => array('wttr_ein', ''),
         'openweather' => array('ow_ein', 'ow_key'), 'weatherapi' => array('wa_ein', 'wa_key'), 'visualcrossing' => array('vc_ein', 'vc_key'), 'tomorrow' => array('tm_ein', 'tm_key'), 'meteoblue' => array('mb_ein', 'mb_key'));
 }
 
 function wd_quellen_liste()
 {
-    $q = array('open_meteo' => 'om_ein', 'dwd' => 'dwd_ein', 'brightsky' => 'bs_ein', 'station' => 'station_ein', 'mosmix' => 'mosmix_ein', 'met' => 'met_ein', 'luft' => 'aq_ein', 'pollen' => 'pollen_ein', 'nina' => 'nina_ein', 'radar' => 'radar_ein', 'meteoalarm' => 'ma_ein');
+    $q = array('open_meteo' => 'om_ein', 'dwd' => 'dwd_ein', 'brightsky' => 'bs_ein', 'station' => 'station_ein', 'mosmix' => 'mosmix_ein', 'met' => 'met_ein', 'wttr' => 'wttr_ein', 'luft' => 'aq_ein', 'pollen' => 'pollen_ein', 'nina' => 'nina_ein', 'radar' => 'radar_ein', 'meteoalarm' => 'ma_ein');
     foreach (wd_prog_quellen() as $n => $f) { if ($f[1] !== '' && $n !== 'open_meteo') { $q[$n] = $f[0]; } }
     return $q;
 }
@@ -54,6 +54,44 @@ function wd_met_lesen($roh)
         $w = wd_num($i['wind_speed'] ?? null); $g = wd_num($i['wind_speed_of_gust'] ?? null);
         $s[] = array('ts' => wd_ts_iso($e['time'] ?? ''), 't' => wd_num($i['air_temperature'] ?? null), 'rf' => wd_num($i['relative_humidity'] ?? null), 'regen' => wd_num($n1['precipitation_amount'] ?? null),
             'regen_w' => wd_num($n1['probability_of_precipitation'] ?? null), 'wind' => $w === null ? null : $w * 3.6, 'boe' => $g === null ? null : $g * 3.6, 'uv' => wd_num($i['ultraviolet_index_clear_sky'] ?? null));
+    }
+    return count($s) >= 12 ? array('stunden' => $s) : null;
+}
+
+/** wttr.in ist ein Einzelbetrieb; der Betreiber meldete Tage mit erschoepfter Kapazitaet. Die Daten kommen in 3-Stunden-Schritten: oefter als deren Schrittweite bringt nichts. */
+function wd_wttr_takt_min() { return 180; }
+
+/**
+ * wttr.in format=j1: je Tag acht Schritte in Ortszeit, Zeit als 0, 300 ... 2100. Wird zu Stundenwerten: Temperatur, Feuchte und Wind linear, Regen je Schritt gleich verteilt.
+ * Die Antwort muss zum Standort passen: Bei einem unbekannten Ort liefert der Dienst Wetter von anderswo, bei Kapazitaetsende Text.
+ */
+function wd_wttr_lesen($roh, $la, $lo)
+{
+    $d = json_decode((string) $roh, true);
+    if (!is_array($d) || !isset($d['weather']) || !is_array($d['weather']) || !$d['weather']) { return null; }
+    $na = $d['nearest_area'][0] ?? null;
+    if (!is_array($na) || !is_numeric($na['latitude'] ?? null) || !is_numeric($na['longitude'] ?? null) || abs((float) $na['latitude'] - (float) $la) > 1.5 || abs((float) $na['longitude'] - (float) $lo) > 1.5) { return null; }
+    $sl = array();
+    foreach ($d['weather'] as $t) {
+        if (!is_array($t) || !preg_match('/^[0-9]{4}-[0-9]{2}-[0-9]{2}\z/', (string) ($t['date'] ?? '')) || !isset($t['hourly']) || !is_array($t['hourly'])) { continue; }
+        foreach ($t['hourly'] as $h) {
+            if (!is_array($h) || !is_numeric($h['time'] ?? null) || !is_numeric($h['tempC'] ?? null)) { continue; }
+            $ts = strtotime($t['date'] . sprintf(' %02d:00:00', (int) floor((int) $h['time'] / 100)));
+            if ($ts === false) { continue; }
+            $sl[$ts] = array('t' => (float) $h['tempC'], 'rf' => wd_num($h['humidity'] ?? null), 'wind' => wd_num($h['windspeedKmph'] ?? null), 'boe' => wd_num($h['WindGustKmph'] ?? null), 'regen' => wd_num($h['precipMM'] ?? null), 'regen_w' => wd_num($h['chanceofrain'] ?? null), 'uv' => wd_num($h['uvIndex'] ?? null));
+        }
+    }
+    ksort($sl);
+    $ts = array_keys($sl); $s = array(); $n = 3;
+    $zw = function ($a, $b, $f) { return ($a === null || $b === null) ? $a : $a + ($b - $a) * $f; };
+    foreach ($ts as $i => $t0) {
+        $a = $sl[$t0]; $b = isset($ts[$i + 1]) ? $sl[$ts[$i + 1]] : $a;
+        if (isset($ts[$i + 1])) { $n = max(1, min(6, (int) round(($ts[$i + 1] - $t0) / 3600))); }
+        for ($k = 0; $k < $n; $k++) {
+            $f = $k / $n;
+            $s[] = array('ts' => $t0 + $k * 3600, 't' => round($zw($a['t'], $b['t'], $f), 2), 'rf' => $zw($a['rf'], $b['rf'], $f), 'wind' => $zw($a['wind'], $b['wind'], $f), 'boe' => $a['boe'],
+                'regen' => $a['regen'] === null ? null : round($a['regen'] / $n, 3), 'regen_w' => $a['regen_w'], 'uv' => $a['uv']);
+        }
     }
     return count($s) >= 12 ? array('stunden' => $s) : null;
 }
@@ -127,6 +165,7 @@ function wd_prog_abruf($q, $c, $jetzt)
     switch ($q) {
         case 'mosmix': return array('https://api.brightsky.dev/weather?lat=' . $la . '&lon=' . $lo . '&date=' . gmdate('Y-m-d', $jetzt) . '&last_date=' . gmdate('Y-m-d', $jetzt + 3 * 86400) . '&tz=UTC', 'wd_mosmix_lesen');
         case 'met': return array('https://api.met.no/weatherapi/locationforecast/2.0/complete?lat=' . $la . '&lon=' . $lo, 'wd_met_lesen');
+        case 'wttr': return array('https://wttr.in/' . $la . ',' . $lo . '?format=j1', function ($r) use ($la, $lo) { return wd_wttr_lesen($r, $la, $lo); });
         case 'openweather': return array('https://api.openweathermap.org/data/3.0/onecall?lat=' . $la . '&lon=' . $lo . '&units=metric&exclude=minutely,daily,alerts,current&appid=' . rawurlencode((string) $c['ow_key']), 'wd_ow_lesen');
         case 'weatherapi': return array('https://api.weatherapi.com/v1/forecast.json?key=' . rawurlencode((string) $c['wa_key']) . '&q=' . $la . ',' . $lo . '&days=3&aqi=no&alerts=no', 'wd_wa_lesen');
         case 'visualcrossing': return array('https://weather.visualcrossing.com/VisualCrossingWebServices/rest/services/timeline/' . $la . ',' . $lo . '/next3days?unitGroup=metric&include=hours&key=' . rawurlencode((string) $c['vc_key']), 'wd_vc_lesen');
@@ -136,14 +175,17 @@ function wd_prog_abruf($q, $c, $jetzt)
     return null;
 }
 
-/** Die uebrigen Prognosequellen holen; je eine eigene Bremse. Schluesseldienste hoechstens stuendlich, damit kein freies Kontingent reisst. MET: nie vor Expires. */
+/** Die uebrigen Prognosequellen holen; je eine eigene Bremse. Schluesseldienste hoechstens stuendlich, damit kein freies Kontingent reisst. MET: nie vor Expires.
+ *  wttr.in: fester Abstand, ein Fehlschlag verkuerzt ihn nicht; auch der Knopf hoechstens alle 15 Minuten (der Dienst haelt seine Antwort ohnehin 10 Minuten). */
 function wd_prog_holen($c, $jetzt, $zwingen)
 {
     foreach (wd_prog_quellen() as $q => $f) {
         if ($q === 'open_meteo' || empty($c[$f[0]]) || ($f[1] !== '' && trim((string) $c[$f[1]]) === '')) { continue; }
         $m = wd_quelle_lesen($q);
         $takt = $f[1] !== '' ? max(60, (int) $c['om_takt_min']) : max(30, (int) $c['om_takt_min']);
-        if (!$zwingen && !wd_faellig($m, $takt, $jetzt)) { continue; }
+        if ($q === 'wttr') {
+            if ($jetzt - (int) $m['versuch_ts'] < ($zwingen ? 15 : wd_wttr_takt_min()) * 60 - 5) { continue; }
+        } elseif (!$zwingen && !wd_faellig($m, $takt, $jetzt)) { continue; }
         if (!$zwingen && $q === 'met' && isset($m['expires']) && $jetzt < (int) $m['expires']) { continue; }
         $a = wd_prog_abruf($q, $c, $jetzt);
         if ($a === null) { continue; }

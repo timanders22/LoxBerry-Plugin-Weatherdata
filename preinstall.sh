@@ -29,7 +29,7 @@ for ZIEL in "$BASE/config/plugins/$PFOLDER.backup.json" \
     fi
 done
 [ -f "$BASE/config/plugins/$PFOLDER.backup.json.alt" ] && chmod 600 "$BASE/config/plugins/$PFOLDER.backup.json.alt" 2>/dev/null
-for T in zustand.json mqtt_sig.txt abruf_letzt empfang.json zaehler.txt; do
+for T in zustand.json mqtt_sig.txt abruf_letzt empfang.json zaehler.txt emu_stunden.json emu_abruf.json; do
     rm -f "/tmp/$PFOLDER/$T" 2>/dev/null
 done
 if [ -n "$BEISEITE" ] || [ -n "$FEST" ]; then

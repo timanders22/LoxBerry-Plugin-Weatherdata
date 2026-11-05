@@ -25,6 +25,20 @@ if [ -n "$UN_PHP" ]; then
         $port = is_array($g) && isset($g["Mqtt"]["Udpinport"]) ? (int) $g["Mqtt"]["Udpinport"] : 0;
         if ($port > 0) { $s = @stream_socket_client("udp://127.0.0.1:" . $port, $e, $t, 1); if ($s) { for ($i = 0; $i < 10; $i++) { @fwrite($s, "retain " . $pf . "/fassung "); usleep(200000); } fclose($s); } }' -- "$UN_BASE/config/plugins/$UN_FOLDER/weatherdata.json" "$UN_BASE/config/system/general.json" "$UN_BASE/config/plugins/$UN_FOLDER.backup.json" 2>/dev/null
 fi
+# Port 6066 des Emulators: nur die eigene Datei, nur wenn sie da ist. Die Deinstallation laeuft als root.
+UN_ETC="${WD_APACHE_ETC:-/etc/apache2}"
+UN_NAME="001-$UN_FOLDER-emu"
+if [ -e "$UN_ETC/sites-available/$UN_NAME.conf" ] || [ -e "$UN_ETC/sites-enabled/$UN_NAME.conf" ]; then
+    a2dissite "$UN_NAME" >/dev/null 2>&1
+    rm -f "$UN_ETC/sites-enabled/$UN_NAME.conf" "$UN_ETC/sites-available/$UN_NAME.conf"
+    if [ -e "$UN_ETC/sites-available/$UN_NAME.conf" ] || [ -e "$UN_ETC/sites-enabled/$UN_NAME.conf" ]; then
+        echo "<WARNING> Port 6066 des Emulators liess sich nicht austragen, bitte von Hand entfernen: $UN_ETC/sites-available/$UN_NAME.conf"
+    elif apache2ctl graceful >/dev/null 2>&1; then
+        echo "<OK> Port 6066 des Emulators ausgetragen, Apache neu geladen."
+    else
+        echo "<WARNING> Port 6066 des Emulators ausgetragen, der Apache liess sich aber nicht neu laden."
+    fi
+fi
 UID_LB=$(id -u loxberry 2>/dev/null || id -u)
 ZIELE="$UN_BASE/config/plugins/$UN_FOLDER.backup.json
 $UN_BASE/config/plugins/$UN_FOLDER.backup.json.alt
