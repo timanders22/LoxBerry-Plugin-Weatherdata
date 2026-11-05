@@ -28,7 +28,10 @@ if (isset($_GET['kachel'])) {
     echo json_encode(is_array($wd_s) ? wd_kachel($wd_s) : array('ok' => 0), JSON_UNESCAPED_UNICODE);
     exit;
 }
-$wd_will = isset($_GET['innen']) || isset($_GET['abruf']);
+// 0.9.7: Messwerte von Loxone, je Wert ein eigener Name lox_<wert> (nie ein MQTT-Thema von Weatherdata, Rueckkopplungssperre)
+$wd_lox = array();
+foreach (array_keys(wd_lox_werte()) as $wd_k) { if (isset($_GET['lox_' . $wd_k])) { $wd_lox[$wd_k] = $_GET['lox_' . $wd_k]; } }
+$wd_will = isset($_GET['innen']) || isset($_GET['abruf']) || $wd_lox;
 if (!$wd_will) {
     header('HTTP/1.1 400 Bad Request');
     echo "WD;OK=0;ERR=UNBEKANNT\n";
@@ -38,6 +41,24 @@ $wd_tok = isset($_GET['token']) && is_string($_GET['token']) ? $_GET['token'] : 
 if ($wd_tok === '' || !hash_equals((string) $wd_c['aktionstoken'], $wd_tok)) {
     header('HTTP/1.1 403 Forbidden');
     echo "WD;OK=0;ERR=TOKEN\n";
+    exit;
+}
+if ($wd_lox) {
+    $wd_cv = $wd_c + wd_vorgaben();     // nur lesen, keine Selbstheilung am offenen Endpunkt
+    if (empty($wd_cv['lox_ein'])) {
+        header('HTTP/1.1 403 Forbidden');
+        echo "WD;OK=0;ERR=AUS\n";
+        exit;
+    }
+    $wd_code = 200; $wd_teile = array();
+    foreach ($wd_lox as $wd_k => $wd_v) {
+        list($wd_c1, $wd_z1) = wd_lox_annehmen($wd_cv, $wd_k, is_string($wd_v) ? $wd_v : '', time());
+        $wd_teile[] = strtoupper($wd_k) . ':' . $wd_z1;
+        if ($wd_c1 > $wd_code) { $wd_code = $wd_c1; }
+    }
+    $wd_txt = array(200 => 'OK', 400 => 'Bad Request', 409 => 'Conflict', 422 => 'Unprocessable Entity', 500 => 'Internal Server Error');
+    if ($wd_code !== 200) { header('HTTP/1.1 ' . $wd_code . ' ' . ($wd_txt[$wd_code] ?? 'Error')); }
+    echo 'WD;OK=' . ($wd_code === 200 ? 1 : 0) . ';' . implode(';', $wd_teile) . "\n";
     exit;
 }
 if (isset($_GET['innen'])) {

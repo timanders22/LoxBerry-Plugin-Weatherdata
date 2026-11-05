@@ -1,0 +1,1 @@
+Eigenes Set "Klar", gezeichnet fuer Weatherdata (vb_wd_skripte/wd097_symbole.py). Lizenz: MIT wie das Plugin, siehe LICENSE im Plugin-Ordner.

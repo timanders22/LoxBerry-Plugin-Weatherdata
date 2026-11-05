@@ -17,7 +17,7 @@ function wd_prog_quellen()
 
 function wd_quellen_liste()
 {
-    $q = array('open_meteo' => 'om_ein', 'dwd' => 'dwd_ein', 'brightsky' => 'bs_ein', 'station' => 'station_ein', 'mosmix' => 'mosmix_ein', 'met' => 'met_ein', 'wttr' => 'wttr_ein', 'luft' => 'aq_ein', 'pollen' => 'pollen_ein', 'nina' => 'nina_ein', 'radar' => 'radar_ein', 'meteoalarm' => 'ma_ein');
+    $q = array('open_meteo' => 'om_ein', 'dwd' => 'dwd_ein', 'brightsky' => 'bs_ein', 'station' => 'station_ein', 'mosmix' => 'mosmix_ein', 'met' => 'met_ein', 'wttr' => 'wttr_ein', 'luft' => 'aq_ein', 'pollen' => 'pollen_ein', 'nina' => 'nina_ein', 'radar' => 'radar_ein', 'meteoalarm' => 'ma_ein', 'wunderground' => 'wu_ein', 'loxone' => 'lox_ein');     // 0.9.7: eigene Messwerte
     foreach (wd_prog_quellen() as $n => $f) { if ($f[1] !== '' && $n !== 'open_meteo') { $q[$n] = $f[0]; } }
     return $q;
 }
@@ -464,8 +464,9 @@ function wd_radar_lesen($roh, $jetzt)
 
 /* ------------------------------------ Meteoalarm: nur fuer Nutzer ausserhalb Deutschlands, ab Werk aus ------------------------------------ */
 
-function wd_ma_lesen($roh, $emma)
+function wd_ma_lesen($roh, $emma, $land = '')
 {
+    $ma_dienst = wd_ma_dienst($land);
     if (strpos((string) $roh, '<feed') === false) { return null; }
     $o = array();
     if (preg_match_all('#<entry>(.*?)</entry>#s', (string) $roh, $m)) {
@@ -476,7 +477,9 @@ function wd_ma_lesen($roh, $emma)
             // 0.9.6: Bedingungen von MeteoAlarm (Stand 15.03.2024), Ziffer 5: Ausgabezeit, Quelle und Verweis stehen bei jeder Warnung.
             $ma_stelle = preg_match('#<author>\s*<name>(.*?)</name>#s', $e, $ma_t) ? wd_xml_wert($ma_t[1]) : '';
             $ma_zeit = wd_ts_iso($ein('sent') ?: $ein('effective'));
-            $ma_satz = sprintf(wd_t('QUELLE.MA_NENNUNG'), is_int($ma_zeit) ? date('d.m.Y H:i', $ma_zeit) : (string) $ma_zeit, $ma_stelle !== '' && stripos($ma_stelle, 'meteoalarm') === false ? $ma_stelle . ', ' : '');
+            // 0.9.7: Ziffer 5 verlangt den Namen des Dienstes; er kommt aus der Tabelle, sonst aus dem Feed, falls der ihn je nennt.
+            $ma_wer = $ma_dienst !== '' ? $ma_dienst : ($ma_stelle !== '' && stripos($ma_stelle, 'meteoalarm') === false ? $ma_stelle : '');
+            $ma_satz = sprintf(wd_t('QUELLE.MA_NENNUNG'), is_int($ma_zeit) ? date('d.m.Y H:i', $ma_zeit) : (string) $ma_zeit, $ma_wer !== '' ? sprintf(wd_t('QUELLE.MA_DIENST'), $ma_wer) : '');
             $o[] = array('id' => $ein('identifier'), 'status' => $ein('status') ?: 'Actual', 'msg' => $ein('message_type') ?: 'Alert', 'ii' => 0, 'gruppe' => '', 'art' => $art, 'stufe' => wd_stufe_aus_schwere($ein('severity')), 'vorab' => 0,
                 'beginn' => wd_ts_iso($ein('onset') ?: $ein('effective')), 'ende' => wd_ts_iso($ein('expires')), 'titel' => $art, 'volltext' => trim($art . ' ' . $ma_satz), 'quelle' => 'meteoalarm', 'verweise' => array());
         }
@@ -514,8 +517,8 @@ function wd_mehr_holen($c, $jetzt, $zwingen)
         wd_einfach_holen('nina', 'https://warnung.bund.de/api31/dashboard/' . substr((string) $c['nina_ars'], 0, 5) . '0000000.json', 'wd_nina_lesen', 'nina.json', 5, $jetzt, $zwingen);
     }
     if (!empty($c['ma_ein']) && preg_match('/^[a-z\-]{3,40}\z/', (string) $c['ma_land'])) {
-        $em = (string) $c['ma_emma'];
-        wd_einfach_holen('meteoalarm', 'https://feeds.meteoalarm.org/feeds/meteoalarm-legacy-atom-' . $c['ma_land'], function ($r) use ($em) { return wd_ma_lesen($r, $em); }, 'meteoalarm.json', 5, $jetzt, $zwingen);     // 0.9.6: alle 5 Minuten, die Bedingungen verlangen hoechstens 10 Minuten Verzug
+        $em = (string) $c['ma_emma']; $ml = (string) $c['ma_land'];
+        wd_einfach_holen('meteoalarm', 'https://feeds.meteoalarm.org/feeds/meteoalarm-legacy-atom-' . $c['ma_land'], function ($r) use ($em, $ml) { return wd_ma_lesen($r, $em, $ml); }, 'meteoalarm.json', 5, $jetzt, $zwingen);     // 0.9.6: alle 5 Minuten, die Bedingungen verlangen hoechstens 10 Minuten Verzug
     }
     if (!empty($c['radar_ein']) && $pos !== null) {
         wd_einfach_holen('radar', 'https://api.brightsky.dev/radar?lat=' . $pos[0] . '&lon=' . $pos[1] . '&distance=5000&format=plain', function ($r) use ($jetzt) { $x = wd_radar_lesen($r, $jetzt); return $x === null ? null : array('min' => $x[0], 'mmh' => $x[1]); }, 'radar.json', 5, $jetzt, $zwingen, array('Accept-Encoding: gzip'));
@@ -643,6 +646,63 @@ function wd_ma_laender()
     );
 }
 
+/**
+ * 0.9.7: Teilnehmende nationale Wetterdienste je Land, wortgleich aus MeteoAlarm "Our Warning Providers" (www.meteoalarm.org/en/live/page/our-warning-providers,
+ * gelesen am 05.11.2026, Erzeuger wd097_ma_dienste.py). Bedingungen MeteoAlarm (Stand 15.03.2024) Ziffer 5: Bei Warnungen eines Landes steht der Name des Dienstes.
+ * Der Feed nennt ihn nicht (author ist meteoalarm.org). Mehrere Dienste eines Landes werden alle genannt: Welcher die einzelne Warnung gab, steht nicht im Feed.
+ */
+function wd_ma_dienste()
+{
+    return array(
+        'andorra' => array('Servei Meteorològic Nacional (SMN)'),
+        'austria' => array('GeoSphere Austria'),
+        'belgium' => array('Institut Royal Météorologique/Koninklijk Meteorologisch Instituut (IRM/KMI)'),
+        'bosnia-herzegovina' => array('Federalni Hidrometeorološki Zavod BiH (FHMZ)', 'Republički Hidrometeorološki Zavod Republike Srpske (RHMZ RS)'),
+        'bulgaria' => array('National Institute of Meteorology and Hydrology (NIMH)'),
+        'croatia' => array('Državni Hidrometeorološki Zavod (DHMZ)'),
+        'cyprus' => array('Cyprus Department of Meteorology (CYMET)'),
+        'czechia' => array('Czech Hydrometeorological Institute (CHMI)'),
+        'denmark' => array('Danmarks Meteorologiske Institut (DMI)'),
+        'estonia' => array('Estonian Environment Agency (ESTEA)'),
+        'finland' => array('Finnish Meteorological Institute (FMI)'),
+        'france' => array('Météo-France'),
+        'germany' => array('Deutscher Wetterdienst (DWD)'),
+        'greece' => array('Hellenic National Meteorological Service (HNMS)'),
+        'hungary' => array('HungaroMet'),
+        'iceland' => array('Icelandic Meteorological Office (IMO)'),
+        'ireland' => array('Met Éireann'),
+        'israel' => array('Israel Meteorological Service (IMS)'),
+        'italy' => array('Servizio Meteorologico dell’Aeronautica Militare (MeteoAM)'),
+        'latvia' => array('Latvijas Vides, Ģeoloģijas un Meteoroloģijas Centrs (LVĢMC)'),
+        'lithuania' => array('Lietuvos Hidrometeorologijos Tarnyba (LHMT)'),
+        'luxembourg' => array('MeteoLux'),
+        'malta' => array('Malta Meteorological Office (MAMO)'),
+        'moldova' => array('Autoritatea de Meteorologie și Monitoring de Mediu (AMM)'),
+        'montenegro' => array('Zavod za Hidrometeorologiju i Seizmologiju (ZHMS)'),
+        'netherlands' => array('Koninklijk Nederlands Meteorologisch Instituut (KNMI)'),
+        'republic-of-north-macedonia' => array('Hydrometeorological Service of Republic of North Macedonia (HMS)'),
+        'norway' => array('Meteorologisk Institutt (MET Norway)', 'Norges Vassdrags- og Energidirektorat (NVE)'),
+        'poland' => array('Instytut Meteorologii i Gospodarki Wodnej - Państwowy Instytut Badawczy (IMGW-PIB)'),
+        'portugal' => array('Instituto Português do Mar e da Atmosfera (IPMA)'),
+        'romania' => array('Administrația Națională de Meteorologie (ANM)'),
+        'serbia' => array('Republički Hidrometeorološki Zavod Srbije (RHMZ)'),
+        'slovakia' => array('Slovenský Hydrometeorologický Ústav (SHMÚ)'),
+        'slovenia' => array('Agencija Republike Slovenije za Okolje (ARSO)'),
+        'spain' => array('Agencia Estatal de Meteorología (AEMET)'),
+        'sweden' => array('Sveriges Meteorologiska och Hydrologiska Institut (SMHI)'),
+        'switzerland' => array('Federal Office of Meteorology and Climatology MeteoSwiss'),
+        'ukraine' => array('Ukrainian Hydrometeorological Center (UHMC)'),
+        'united-kingdom' => array('Met Office', 'Environment Agency (EA)', 'Natural Resources Wales (NRW)', 'Scottish Environment Protection Agency (SEPA)'),
+    );
+}
+
+/** Name(n) des Dienstes fuer ein Land, mehrere mit Semikolon. Leer, wenn das Land nicht in der Tabelle steht (alter Freitext). */
+function wd_ma_dienst($land)
+{
+    $d = wd_ma_dienste();
+    return isset($d[(string) $land]) ? implode('; ', $d[(string) $land]) : '';
+}
+
 /** Auswahl fuer ein Feld: Wert => Anzeige, erster Eintrag leer. Die Eingabenpruefung bleibt die alte, ein Wert ausserhalb der Liste bleibt also gueltig. */
 function wd_auswahl_liste($k)
 {
@@ -673,6 +733,8 @@ function wd_feld_verweise()
         'vc_key' => array(array('https://www.visualcrossing.com/sign-up/', 'VERWEIS.VC'), array('https://www.visualcrossing.com/weather-data-pricing/', 'VERWEIS.VC_PREIS')),
         'tm_key' => array(array('https://app.tomorrow.io/signup', 'VERWEIS.TM'), array('https://www.tomorrow.io/weather-api/', 'VERWEIS.TM_PREIS')),
         'mb_key' => array(array('https://business.meteoblue.com/products/weather-apis/free-weather-api', 'VERWEIS.MB')),
+        'wu_key' => array(array('https://www.wunderground.com/member/api-keys', 'VERWEIS.WU')),
+        'wu_station' => array(array('https://www.wunderground.com/member/devices', 'VERWEIS.WU_STATION')),
     );
 }
 
@@ -690,6 +752,7 @@ function wd_quelle_klartext($n, $meldung, array $c)
         $k = array(0 => 'ST_0', 403 => 'ST_403', 404 => 'ST_404', 503 => 'ST_503');
         return isset($k[$h]) ? wd_t('QUELLE.' . $k[$h]) : sprintf(wd_t('QUELLE.K_HTTP'), $h);
     }
+    if ($n === 'wunderground' && $h === 204) { return wd_t('QUELLE.WU_204'); }
     $k = array(0 => 'K_0', 401 => 'K_401', 403 => 'K_403', 429 => 'K_429');
     return isset($k[$h]) ? wd_t('QUELLE.' . $k[$h]) : sprintf(wd_t('QUELLE.K_HTTP'), $h);
 }
@@ -706,6 +769,9 @@ function wd_quelle_anzeige($n, array $q, array $c, array $alle = array())
     if ($n === 'pollen' && $leer('pollen_region')) { $grund = 'L_TEILREGION'; }
     elseif ($n === 'nina' && $leer('nina_ars')) { $grund = 'L_ARS'; }
     elseif ($n === 'meteoalarm' && $leer('ma_land')) { $grund = 'L_LAND'; }
+    elseif ($n === 'wunderground' && $leer('wu_station')) { $grund = 'L_WU_STATION'; }
+    elseif ($n === 'wunderground' && $leer('wu_key')) { $grund = 'L_SCHLUESSEL'; }
+    elseif ($n === 'loxone' && (string) ($q['meldung'] ?? '') === '') { $grund = 'L_LOXONE'; }
     elseif (in_array($n, array('dwd', 'brightsky'), true) && $leer('warnzelle')) { $grund = 'L_ZELLE'; }
     elseif (isset($pq[$n]) && $pq[$n][1] !== '' && $n !== 'open_meteo' && $leer($pq[$n][1])) { $grund = 'L_SCHLUESSEL'; }
     elseif ((isset($pq[$n]) || in_array($n, array('luft', 'radar'), true)) && ($leer('lat') || $leer('lon'))) { $grund = 'L_STANDORT'; }

@@ -16,7 +16,7 @@ if [ "$EIN" = "1" ]; then
     A=$(bash "$SK" ein 2>&1); RC=$?
     echo "$A"
     if [ "$RC" != 0 ]; then
-        echo "<INFO> Der Emulator bleibt ohne Port 6066 (Rueckgabe $RC); das Plugin selbst ist vollstaendig installiert. Lage: Reiter Einbindung in Loxone."
+        echo "<INFO> Der Emulator bleibt ohne Port 6066 (Rueckgabe $RC); das Plugin selbst ist vollstaendig installiert. Lage: Reiter Emulator."
     fi
 elif [ -e "$ETC/sites-available/001-$PFOLDER-emu.conf" ] || [ -e "$ETC/sites-enabled/001-$PFOLDER-emu.conf" ]; then
     bash "$SK" aus 2>&1

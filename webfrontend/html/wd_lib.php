@@ -15,6 +15,8 @@ require_once __DIR__ . '/wd_rechnen.php';
 require_once __DIR__ . '/wd_quellen.php';
 require_once __DIR__ . '/wd_mehr.php';
 require_once __DIR__ . '/wd_emu.php';
+require_once __DIR__ . '/wd_seite.php';
+require_once __DIR__ . '/wd_eigen.php';
 
 if (!function_exists('lb_wurzel_ermitteln')) {
     function lb_wurzel_ermitteln()
@@ -139,6 +141,9 @@ function wd_felder()
         'tm_key' => array('zusatz_save', 'g', '', 0, 0),
         'mb_ein' => array('zusatz_save', 'h', 0, 0, 0),
         'mb_key' => array('zusatz_save', 'g', '', 0, 0),
+        'wu_ein' => array('zusatz_save', 'h', 0, 0, 0),
+        'wu_station' => array('zusatz_save', 'wustation', '', 0, 0),
+        'wu_key' => array('zusatz_save', 'g', '', 0, 0),
         'station_ordner' => array('quellen_save', 'ordner', 'ecowittweiche', 0, 0),
         'station_gleich_min' => array('quellen_save', 'z', 180, 30, 1440),
         'station_sprung_k' => array('quellen_save', 'z', 12, 3, 40),
@@ -165,6 +170,8 @@ function wd_felder()
         'mqtt_topic' => array('mqtt_save', 'thema', 'weatherdata', 0, 0),
         'emu_ein' => array('emu_save', 'h', 0, 0, 0),
         'emu_nur_ms' => array('emu_save', 'h', 1, 0, 0),
+        'lox_ein' => array('lox_save', 'h', 0, 0, 0),
+        'lox_gueltig_min' => array('lox_save', 'z', 30, 10, 180),
     );
 }
 
@@ -201,6 +208,9 @@ function wd_wert_pruefen($k, $w)
         case 'land':
             $s = is_scalar($w) ? trim((string) $w) : '';
             return ($s === '' || preg_match('/^[a-z\-]{3,40}\z/', $s)) ? array(true, $s, '') : array(false, null, wd_t('MELD.W_LAND'));
+        case 'wustation':
+            $s = is_scalar($w) ? strtoupper(trim((string) $w)) : '';
+            return ($s === '' || preg_match('/^[A-Z0-9]{3,32}\z/', $s)) ? array(true, $s, '') : array(false, null, wd_t('MELD.W_WUSTATION'));
         case 'emma':
             $s = is_scalar($w) ? trim((string) $w) : '';
             return ($s === '' || preg_match('/^[A-Z0-9]{2,12}\z/', $s)) ? array(true, $s, '') : array(false, null, wd_t('MELD.W_EMMA'));
@@ -371,10 +381,10 @@ function wd_log_sauber($t)
 {
     $t = (string) $t;
     $c = wd_inhalt_oder_null(wd_paths()['config']);
-    foreach (is_array($c) ? array('lat', 'lon', 'warnzelle', 'om_apikey', 'ow_key', 'wa_key', 'vc_key', 'tm_key', 'mb_key', 'station_host1', 'station_host2', 'nina_ars', 'pollen_region', 'ma_emma') : array() as $k) {
+    foreach (is_array($c) ? array('lat', 'lon', 'warnzelle', 'om_apikey', 'ow_key', 'wa_key', 'vc_key', 'tm_key', 'mb_key', 'station_host1', 'station_host2', 'nina_ars', 'pollen_region', 'ma_emma', 'wu_key', 'wu_station') : array() as $k) {
         if (isset($c[$k]) && is_scalar($c[$k]) && (string) $c[$k] !== '') { $t = str_replace((string) $c[$k], '***', $t); }
     }
-    $t = preg_replace('/(latitude|longitude|lat|lon|apikey|appid|key|warn_cell_id|coord|user|token)=[^&\s]+/', '$1=***', $t);
+    $t = preg_replace('/(latitude|longitude|lat|lon|apikey|apiKey|appid|key|warn_cell_id|coord|user|token|stationId)=[^&\s]+/', '$1=***', $t);
     return str_replace(array("\r", "\n"), ' ', $t);
 }
 
@@ -490,7 +500,7 @@ function wd_mqtt_tabelle()
         'status/zaehler' => array('z', 1, 0, 'P', 0, 999, ''),
     );
     foreach (array_keys(wd_quellen_liste()) as $d) {
-        $t['quelle/' . $d . '/ok'] = array('z', 1, 0, $d === 'wttr' ? 'W' : 'P', 0, 1, '');      // ab 0.9.4 ab Werk aus: kein neuer Pflichthaken fuer bestehende Anlagen
+        $t['quelle/' . $d . '/ok'] = array('z', 1, 0, in_array($d, array('wttr', 'wunderground', 'loxone'), true) ? 'W' : 'P', 0, 1, '');      // ab 0.9.4 ab Werk aus: kein neuer Pflichthaken fuer bestehende Anlagen
         $t['quelle/' . $d . '/alter_s'] = array('z', 0, 0, 'W', 0, 1000000, 's');
     }
     $t += array(
@@ -742,16 +752,26 @@ function wd_vorlage($c = null)
     return array('VI_weatherdata.xml', $o . '</VirtualInHttp>' . $crlf);
 }
 
-/** Musterprojekt-Tabelle: je Zeile ein Baustein, wortgleich mit der Seite im Musterprojekt (Stufe 4 baut die Seite). Nur Pflichtthemen. */
+/**
+ * 0.9.7: Baustein-Liste der Musterseiten "Weatherdata" und "Weatherdata Werte und Signale", wortgleich mit dem Musterprojekt und mit
+ * baustein_listen.txt (eine Quelle: wd097_mp_spec.py, Sprachschluessel MPL.*). Rueckgabe array(Seitentitel => array(array(Nr, Typ, Name, Parameter, Eingaenge))).
+ * Die Namen der Virtuellen Eingaenge folgen dem Praefix aus dem Reiter MQTT; das Musterprojekt nutzt den Vorgabepraefix weatherdata.
+ */
 function wd_bausteinliste($c = null)
 {
-    $a = array(); $i = 0;
-    foreach (wd_hakenliste($c) as $z) {
-        if ($z['pflicht'] !== 'P') { continue; }
-        $i++;
-        $a[] = array($i, wd_t($z['art'] === 't' ? 'EINB.B_TEXT' : 'EINB.B_ZAHL'), $z['name'], '-', $z['text']);
+    $pf = wd_mqtt_praefix($c);
+    $o = array();
+    for ($s = 1; wd_t('MPL.S' . $s) !== 'MPL.S' . $s; $s++) {
+        $n = (int) wd_t('MPL.ANZ' . $s); $z = array();
+        for ($i = 1; $i <= $n; $i++) {
+            $k = 'MPL.S' . $s . '_' . $i . '_';
+            $name = wd_t($k . 'N');
+            if (strpos($name, 'weatherdata_') === 0) { $name = str_replace('/', '_', $pf) . substr($name, strlen('weatherdata')); }
+            $z[] = array($i, wd_t($k . 'T'), $name, wd_t($k . 'P'), wd_t($k . 'E'));
+        }
+        $o[wd_t('MPL.S' . $s)] = $z;
     }
-    return $a;
+    return $o;
 }
 
 /* ===================================================== Sicherung ===================================================== */
@@ -810,7 +830,7 @@ function wd_sicherung_lesen($roh, $geltend = null)
     $fehlt = array();
     // Felder, die eine Sicherung von vor 0.9.4 nicht kennen kann, gelten mit ihrer Vorgabe; alles andere muss da sein.
     $wf_felder = wd_felder();
-    foreach (array_keys(wd_vorgaben()) as $k) { if (!array_key_exists($k, $d) && !in_array($k, array('wttr_ein', 'emu_ein', 'emu_nur_ms'), true) && !(isset($wf_felder[$k]) && $wf_felder[$k][1] === 'g')) { $fehlt[] = $k; } }
+    foreach (array_keys(wd_vorgaben()) as $k) { if (!array_key_exists($k, $d) && !in_array($k, array('wttr_ein', 'emu_ein', 'emu_nur_ms', 'wu_ein', 'wu_station', 'lox_ein', 'lox_gueltig_min'), true) && !(isset($wf_felder[$k]) && $wf_felder[$k][1] === 'g')) { $fehlt[] = $k; } }
     if ($fehlt) { $mangel[] = sprintf(wd_t('SICH.FEHLEND'), count($fehlt), implode(', ', $fehlt)); }
     if (trim((string) $neu['aktionstoken']) === '') { $mangel[] = wd_t('SICH.TOKEN_LEER'); }
     return array($mangel ? null : $neu, $mangel, $n, $hin);

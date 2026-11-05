@@ -75,7 +75,7 @@ function wd_om_url($c)
     if ($pos === null) { return ''; }
     $key = trim((string) $c['om_apikey']);
     $u = ($key !== '' ? 'https://customer-api.open-meteo.com' : 'https://api.open-meteo.com') . '/v1/forecast?latitude=' . $pos[0] . '&longitude=' . $pos[1]
-       . '&timezone=auto&forecast_days=' . (!empty($c['emu_ein']) ? 8 : 4) . '&past_hours=1&wind_speed_unit=kmh'
+       . '&timezone=auto&forecast_days=' . (!empty($c['emu_ein']) ? 8 : 7) . '&past_hours=1&wind_speed_unit=kmh'
        . '&current=temperature_2m,relative_humidity_2m,dew_point_2m,surface_pressure,wind_speed_10m,wind_gusts_10m,wind_direction_10m,precipitation,shortwave_radiation,uv_index,weather_code'
        . '&hourly=temperature_2m,relative_humidity_2m,precipitation,precipitation_probability,snowfall,wind_speed_10m,wind_gusts_10m,shortwave_radiation,uv_index,weather_code' . (!empty($c['emu_ein']) ? ',wind_direction_10m,pressure_msl,cloud_cover_low,cloud_cover_mid,cloud_cover_high' : '')
        . '&daily=temperature_2m_max,temperature_2m_min,weather_code';
@@ -439,6 +439,11 @@ function wd_zustand(array $c, $station, $jetzt)
     $q['dwd']['ok'] = $q['dwd']['ein'] && $q['dwd']['alter_s'] !== null && $q['dwd']['alter_s'] <= $warn_grenze;
     $q['brightsky']['ok'] = $q['brightsky']['ein'] && $q['brightsky']['alter_s'] !== null && $q['brightsky']['alter_s'] <= $warn_grenze;
     $q['station']['ok'] = $q['station']['ein'] && $station !== null;
+    // 0.9.7: eigene Messwerte ueber Wunderground und von Loxone
+    $wu = wd_wu_aktuell($c, $jetzt); $lox = wd_lox_aktuell($c, $jetzt);
+    $q['wunderground']['ok'] = $q['wunderground']['ein'] && $wu !== null;
+    $q['loxone']['ok'] = $q['loxone']['ein'] && $lox !== array();
+    $st['ma_dienst'] = (!empty($c['ma_ein']) && function_exists('wd_ma_dienst')) ? wd_ma_dienst((string) $c['ma_land']) : '';
     $st['quellen'] = $q;
 
     // Prognose
@@ -453,19 +458,29 @@ function wd_zustand(array $c, $station, $jetzt)
         $i = 0;
         foreach ($prog['tage'] as $t) { if ((string) $t['datum'] >= $heute && $i < 3) { $st['tage'][$i++] = $t; } }
     }
+    // 0.9.7: Stunden und Tage fuer die Wetterseite, ohne Standort. Wettercodes nur von Open-Meteo, solange es lebt.
+    $omd = !empty($q['open_meteo']['ok']) ? wd_json_lesen(wd_datadir() . '/prog.json') : null;
+    $st['seite'] = wd_seite_daten($std, (is_array($omd) && isset($omd['stunden']) && is_array($omd['stunden'])) ? $omd['stunden'] : array(), ($st['prog_ok'] && is_array($prog['tage'])) ? $prog['tage'] : array(), $jetzt);
 
-    // Jetzt: Station gewinnt, solange sie plausibel ist; Rueckfall Prognose "jetzt", ausdruecklich gekennzeichnet
+    // Jetzt: Station gewinnt, solange sie plausibel ist; dann Wunderground, dann Loxone (0.9.7); Rueckfall Prognose "jetzt", ausdruecklich gekennzeichnet
     $jw = array(); $her = array();
     $om_j = $st['prog_ok'] ? $prog['jetzt'] : array();
     foreach (array('temp_c', 'rf_pct', 'taupunkt_c', 'druck_hpa', 'wind_kmh', 'boe_kmh', 'windrichtung_grad', 'regen_mmh', 'regnet', 'strahlung_wm2', 'uv') as $k) {
         if (is_array($station) && isset($station[$k]) && $station[$k] !== null) { $jw[$k] = $station[$k]; $her[$k] = 'station'; }
+        elseif (is_array($wu) && isset($wu[$k]) && $wu[$k] !== null) { $jw[$k] = $wu[$k]; $her[$k] = 'wunderground'; }
+        elseif (isset($lox[$k])) { $jw[$k] = $lox[$k]; $her[$k] = 'loxone'; }
         elseif (isset($om_j[$k]) && $om_j[$k] !== null) { $jw[$k] = $om_j[$k]; $her[$k] = $q['open_meteo']['ok'] ? 'open-meteo' : $prog['herkunft']; }
         else { $jw[$k] = null; $her[$k] = 'keine'; }
     }
+    // Taupunkt passt nur zu Temperatur und Feuchte derselben Herkunft; kommt eins davon von Loxone, wird er gerechnet.
+    if (($her['temp_c'] === 'loxone' || $her['rf_pct'] === 'loxone') && $her['taupunkt_c'] !== 'station' && $her['taupunkt_c'] !== 'wunderground') { $jw['taupunkt_c'] = null; }
     if ($jw['taupunkt_c'] === null && $jw['temp_c'] !== null && $jw['rf_pct'] !== null) { $jw['taupunkt_c'] = wd_taupunkt($jw['temp_c'], $jw['rf_pct']); $her['taupunkt_c'] = 'rechnung'; }
     $st['jetzt'] = $jw; $st['herkunft'] = $her;
+    // 0.9.7: nur zur Anzeige im Reiter Werte (Vergleich eigene Messung gegen Wetterdienst); keine Logik haengt daran, kein MQTT-Thema.
+    $st['dienst'] = array(); foreach (array_keys($jw) as $k) { $st['dienst'][$k] = (isset($om_j[$k]) && is_numeric($om_j[$k])) ? (float) $om_j[$k] : null; }
+    $st['dienst_her'] = $st['prog_ok'] ? ($q['open_meteo']['ok'] ? 'open-meteo' : (string) $prog['herkunft']) : 'keine';
     $st['jetzt_ok'] = $jw['temp_c'] !== null;
-    $st['ist_ersatz'] = ($st['jetzt_ok'] && $her['temp_c'] !== 'station') ? 1 : 0;
+    $st['ist_ersatz'] = ($st['jetzt_ok'] && !in_array($her['temp_c'], array('station', 'wunderground', 'loxone'), true)) ? 1 : 0;
 
     // Gefuehlt: Station 10-Minuten-Mittel, sonst Prognose jetzt; dieselbe Formel
     if ($her['temp_c'] === 'station') {
@@ -713,6 +728,7 @@ function wd_lauf_sperrt($zwingen)
     if (!empty($c['bs_ein']) && (!$dwd_lebt || $zwingen)) { wd_bs_holen($c, $jetzt, $zwingen); }
     wd_mehr_holen($c, $jetzt, $zwingen);
     list($station) = wd_st_holen($c, $jetzt);
+    wd_wu_holen($c, $jetzt);     // 0.9.7: eigener Takt, nie oefter als alle 10 Minuten, auch nicht auf Knopfdruck
     if (is_array($station) && wd_bilanz_faellig($jetzt)) { wd_bilanz_rechnen($station['temp_c'], $jetzt); }
     $st = wd_zustand($c, $station, $jetzt);
     wd_warn_zaehlen($st);
@@ -720,7 +736,7 @@ function wd_lauf_sperrt($zwingen)
     unset($st['prog_stunden']);
     wd_json_schreiben(wd_tmpdir() . '/zustand.json', $st);
     $werte = wd_werte($st, $c, wd_zaehler());
-    $sig = md5((string) json_encode(array_diff_key($werte, array('status/ts' => 1, 'status/zaehler' => 1, 'quelle/open_meteo/alter_s' => 1, 'quelle/dwd/alter_s' => 1, 'quelle/brightsky/alter_s' => 1, 'quelle/station/alter_s' => 1, 'warnung/beginn_min' => 1))));
+    $sig = md5((string) json_encode(array_diff_key($werte, array('status/ts' => 1, 'status/zaehler' => 1, 'quelle/open_meteo/alter_s' => 1, 'quelle/dwd/alter_s' => 1, 'quelle/brightsky/alter_s' => 1, 'quelle/station/alter_s' => 1, 'quelle/wunderground/alter_s' => 1, 'quelle/loxone/alter_s' => 1, 'warnung/beginn_min' => 1))));
     $sf = wd_tmpdir() . '/mqtt_sig.txt';
     $alt = is_file($sf) ? explode('|', (string) file_get_contents($sf)) : array('', '0');
     $voll = $sig !== $alt[0] || $jetzt - (int) ($alt[1] ?? 0) >= 300;

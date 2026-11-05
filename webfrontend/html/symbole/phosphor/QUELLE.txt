@@ -1,0 +1,3 @@
+Phosphor Icons, npm @phosphor-icons/core 2.1.1 (https://github.com/phosphor-icons/core), Stil duotone
+Veraendert fuer Weatherdata: Kommentare und unbenutzte id entfernt, benutzte id mit Praefix, Leerraum verdichtet. Lizenztext daneben.
+Zuordnung: klar_tag=sun, klar_nacht=moon-stars, heiter_tag=cloud-sun, heiter_nacht=cloud-moon, wolkig_tag=cloud-sun, wolkig_nacht=cloud-moon, bedeckt=cloud, nebel=cloud-fog, niesel=drop, regen=cloud-rain, starkregen=cloud-rain, gefrierend=drop-half, schnee=cloud-snow, starkschnee=snowflake, schauer_tag=cloud-rain, schauer_nacht=cloud-rain, schneeschauer_tag=cloud-snow, schneeschauer_nacht=cloud-snow, gewitter=cloud-lightning, gewitter_hagel=lightning, unbekannt=question
