@@ -352,10 +352,12 @@ function wd_st_vorhanden($c)
     return $h !== '' && is_dir($h . '/config/plugins/' . $c['station_ordner']);
 }
 
-/** Token der Weiche, nur im Speicher: Es steht in ihrer eigenen Konfiguration und wird hier nicht abgelegt. */
+/** Token der Weiche, nur im Speicher: Es steht in ihrer eigenen Konfiguration und wird hier nicht abgelegt. Die Datei heisst in der Weiche immer ecowitt.json, unabhaengig vom Ordner (ew_paths). */
+function wd_st_token_datei($c) { return wd_paths()['lbhome'] . '/config/plugins/' . $c['station_ordner'] . '/ecowitt.json'; }
+
 function wd_st_token($c)
 {
-    $d = wd_json_lesen(wd_paths()['lbhome'] . '/config/plugins/' . $c['station_ordner'] . '/' . $c['station_ordner'] . '.json');
+    $d = wd_json_lesen(wd_st_token_datei($c));
     return (is_array($d) && isset($d['token']) && is_string($d['token'])) ? $d['token'] : '';
 }
 
@@ -784,6 +786,12 @@ function wd_selbsttest()
     $zeile(wd_t('PRUEF.MIX'), count($mx) === 1 && $nah($mx[0]['t'], 11) && $mx[0]['t_min'] == 10.0 && $mx[0]['t_max'] == 20.0 && $mx[0]['boe'] == 70.0 && $mx[0]['regen'] == 3.0 && $mx[0]['regen_max'] == 5.0);
     $zeile(wd_t('PRUEF.GEWICHT'), wd_gewicht(array('q' => array('f0' => array(13, 2.0, 0))), 'q', 'f0') == 1.0 && $nah(wd_gewicht(array('q' => array('f0' => array(14, 2.0, 0))), 'q', 'f0'), 0.25, 0.001));
     $zeile(wd_t('PRUEF.POLLEN'), wd_pollen_stufe('1-2') === 1.5 && wd_pollen_stufe('-1') === null && wd_pollen_stufe('3') === 3.0);
+    $zeile(wd_t('PRUEF.WTTR_ORT'), wd_wttr_ort(12.3456, -67.8912) === '12.35,-67.89');
+    $lf = array();
+    foreach (array('pollen_region', 'ma_land') as $lk) { foreach (array_keys(wd_auswahl_liste($lk)) as $lw) { if (!wd_wert_pruefen($lk, (string) $lw)[0]) { $lf[] = $lk . ':' . $lw; } } }
+    $zeile(wd_t('PRUEF.LISTEN'), !$lf, implode(', ', $lf));
+    $tl = wd_st_token_lage($c);
+    $zeile(wd_t('PRUEF.ST_TOKEN'), $tl, wd_t($tl === null ? 'PRUEF.ST_TOKEN_OHNE' : ($tl ? 'PRUEF.ST_TOKEN_OK' : 'PRUEF.ST_TOKEN_FEHL')));
     $e1 = wd_empfang_lesen(array('tempf' => 50.0, 'humidity' => 60.0, 'windspeedmph' => 10.0, 'rainratein' => 0.0));
     $zeile(wd_t('PRUEF.EMPFANG'), is_array($e1) && $nah($e1['temp_c'], 10) && $nah($e1['wind_kmh'], 16.1) && $e1['regnet'] === 0 && wd_empfang_lesen(array('tempf' => 50.0, 'humidity' => 0.0)) === null);
     $nl = wd_warn_regel(array('quelle' => 'nina', 'strom' => 'mow', 'stufe' => 3, 'klasse' => 'sonst'));

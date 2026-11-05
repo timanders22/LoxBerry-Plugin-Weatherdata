@@ -124,21 +124,21 @@ function wd_felder()
         'pollen_ein' => array('quellen_save', 'h', 1, 0, 0),
         'pollen_region' => array('quellen_save', 'region', '', 0, 0),
         'radar_ein' => array('quellen_save', 'h', 1, 0, 0),
-        'nina_ein' => array('quellen_save', 'h', 0, 0, 0),
-        'nina_ars' => array('quellen_save', 'ars', '', 0, 0),
-        'ma_ein' => array('quellen_save', 'h', 0, 0, 0),
-        'ma_land' => array('quellen_save', 'land', '', 0, 0),
-        'ma_emma' => array('quellen_save', 'emma', '', 0, 0),
-        'ow_ein' => array('quellen_save', 'h', 0, 0, 0),
-        'ow_key' => array('quellen_save', 'g', '', 0, 0),
-        'wa_ein' => array('quellen_save', 'h', 0, 0, 0),
-        'wa_key' => array('quellen_save', 'g', '', 0, 0),
-        'vc_ein' => array('quellen_save', 'h', 0, 0, 0),
-        'vc_key' => array('quellen_save', 'g', '', 0, 0),
-        'tm_ein' => array('quellen_save', 'h', 0, 0, 0),
-        'tm_key' => array('quellen_save', 'g', '', 0, 0),
-        'mb_ein' => array('quellen_save', 'h', 0, 0, 0),
-        'mb_key' => array('quellen_save', 'g', '', 0, 0),
+        'nina_ein' => array('zusatz_save', 'h', 0, 0, 0),
+        'nina_ars' => array('zusatz_save', 'ars', '', 0, 0),
+        'ma_ein' => array('zusatz_save', 'h', 0, 0, 0),
+        'ma_land' => array('zusatz_save', 'land', '', 0, 0),
+        'ma_emma' => array('zusatz_save', 'emma', '', 0, 0),
+        'ow_ein' => array('zusatz_save', 'h', 0, 0, 0),
+        'ow_key' => array('zusatz_save', 'g', '', 0, 0),
+        'wa_ein' => array('zusatz_save', 'h', 0, 0, 0),
+        'wa_key' => array('zusatz_save', 'g', '', 0, 0),
+        'vc_ein' => array('zusatz_save', 'h', 0, 0, 0),
+        'vc_key' => array('zusatz_save', 'g', '', 0, 0),
+        'tm_ein' => array('zusatz_save', 'h', 0, 0, 0),
+        'tm_key' => array('zusatz_save', 'g', '', 0, 0),
+        'mb_ein' => array('zusatz_save', 'h', 0, 0, 0),
+        'mb_key' => array('zusatz_save', 'g', '', 0, 0),
         'station_ordner' => array('quellen_save', 'ordner', 'ecowittweiche', 0, 0),
         'station_gleich_min' => array('quellen_save', 'z', 180, 30, 1440),
         'station_sprung_k' => array('quellen_save', 'z', 12, 3, 40),
@@ -374,7 +374,7 @@ function wd_log_sauber($t)
     foreach (is_array($c) ? array('lat', 'lon', 'warnzelle', 'om_apikey', 'ow_key', 'wa_key', 'vc_key', 'tm_key', 'mb_key', 'station_host1', 'station_host2', 'nina_ars', 'pollen_region', 'ma_emma') : array() as $k) {
         if (isset($c[$k]) && is_scalar($c[$k]) && (string) $c[$k] !== '') { $t = str_replace((string) $c[$k], '***', $t); }
     }
-    $t = preg_replace('/(latitude|longitude|lat|lon|apikey|appid|key|warn_cell_id|coord|user)=[^&\s]+/', '$1=***', $t);
+    $t = preg_replace('/(latitude|longitude|lat|lon|apikey|appid|key|warn_cell_id|coord|user|token)=[^&\s]+/', '$1=***', $t);
     return str_replace(array("\r", "\n"), ' ', $t);
 }
 
@@ -756,6 +756,16 @@ function wd_bausteinliste($c = null)
 
 /* ===================================================== Sicherung ===================================================== */
 
+/** Was in die Sicherungsdatei kommt: Dienstschluessel nie, Sprechtoken nie. Das Aktionstoken bleibt, es gehoert zur Einrichtung (Hinweis am Knopf). */
+function wd_sicherung_stand()
+{
+    $v = wd_config();
+    unset($v['ansage_token_herkunft']);
+    foreach (wd_felder() as $k => $f) { if ($f[1] === 'g') { unset($v[$k]); } }
+    if (isset($v['tts']) && is_array($v['tts'])) { $v['tts'] = ansage_sicherung_bereinigen($v['tts']); }
+    return $v;
+}
+
 /** Liest eine Sicherungsdatei. Rueckgabe: array(neuer Stand oder null, Mangel, Anzahl, Hinweise). Eine halb gueltige Datei aendert nichts. */
 function wd_sicherung_lesen($roh, $geltend = null)
 {
@@ -763,6 +773,8 @@ function wd_sicherung_lesen($roh, $geltend = null)
     $d = json_decode((string) $roh, true);
     if (!is_array($d) || ($d !== array() && array_keys($d) === range(0, count($d) - 1))) { return array(null, array(wd_t('SICH.KEIN_JSON')), 0, array()); }
     $neu = wd_vorgaben();
+    // Fehlt ein Dienstschluessel in der Datei (ab 0.9.6 immer), bleibt der geltende. Eine aeltere Datei mit Schluessel wird weiter angenommen.
+    foreach (wd_felder() as $k => $f) { if ($f[1] === 'g' && is_array($geltend) && isset($geltend[$k]) && is_string($geltend[$k])) { $neu[$k] = $geltend[$k]; } }
     $n = 0;
     foreach ($d as $k => $w) {
         $k = (string) $k;
@@ -797,7 +809,8 @@ function wd_sicherung_lesen($roh, $geltend = null)
     if ($n === 0) { $mangel[] = wd_t('SICH.LEER'); }
     $fehlt = array();
     // Felder, die eine Sicherung von vor 0.9.4 nicht kennen kann, gelten mit ihrer Vorgabe; alles andere muss da sein.
-    foreach (array_keys(wd_vorgaben()) as $k) { if (!array_key_exists($k, $d) && !in_array($k, array('wttr_ein', 'emu_ein', 'emu_nur_ms'), true)) { $fehlt[] = $k; } }
+    $wf_felder = wd_felder();
+    foreach (array_keys(wd_vorgaben()) as $k) { if (!array_key_exists($k, $d) && !in_array($k, array('wttr_ein', 'emu_ein', 'emu_nur_ms'), true) && !(isset($wf_felder[$k]) && $wf_felder[$k][1] === 'g')) { $fehlt[] = $k; } }
     if ($fehlt) { $mangel[] = sprintf(wd_t('SICH.FEHLEND'), count($fehlt), implode(', ', $fehlt)); }
     if (trim((string) $neu['aktionstoken']) === '') { $mangel[] = wd_t('SICH.TOKEN_LEER'); }
     return array($mangel ? null : $neu, $mangel, $n, $hin);
@@ -806,10 +819,8 @@ function wd_sicherung_lesen($roh, $geltend = null)
 /** Nimmt die Sicherung wegen eines Altwerts das eigene Zurueckspielen nicht an? Dann steht es am Knopf. */
 function wd_rueckspiel_altwerte()
 {
-    $v = wd_config();
-    unset($v['ansage_token_herkunft']);
-    if (isset($v['tts']) && is_array($v['tts'])) { $v['tts'] = ansage_sicherung_bereinigen($v['tts']); }
+    $v = wd_sicherung_stand();
     if (trim((string) $v['aktionstoken']) === '') { return array(); }
-    $e = wd_sicherung_lesen((string) json_encode($v), $v);
+    $e = wd_sicherung_lesen((string) json_encode($v), wd_config());
     return $e[0] === null ? $e[1] : array();
 }

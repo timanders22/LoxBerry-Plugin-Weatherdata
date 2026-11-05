@@ -61,6 +61,9 @@ function wd_met_lesen($roh)
 /** wttr.in ist ein Einzelbetrieb; der Betreiber meldete Tage mit erschoepfter Kapazitaet. Die Daten kommen in 3-Stunden-Schritten: oefter als deren Schrittweite bringt nichts. */
 function wd_wttr_takt_min() { return 180; }
 
+/** Ort fuer wttr.in: immer genau 2 Nachkommastellen, Punkt, Komma ohne Leerzeichen; unabhaengig von der Einstellung pos_stellen. */
+function wd_wttr_ort($la, $lo) { return number_format((float) $la, 2, '.', '') . ',' . number_format((float) $lo, 2, '.', ''); }
+
 /**
  * wttr.in format=j1: je Tag acht Schritte in Ortszeit, Zeit als 0, 300 ... 2100. Wird zu Stundenwerten: Temperatur, Feuchte und Wind linear, Regen je Schritt gleich verteilt.
  * Die Antwort muss zum Standort passen: Bei einem unbekannten Ort liefert der Dienst Wetter von anderswo, bei Kapazitaetsende Text.
@@ -165,7 +168,7 @@ function wd_prog_abruf($q, $c, $jetzt)
     switch ($q) {
         case 'mosmix': return array('https://api.brightsky.dev/weather?lat=' . $la . '&lon=' . $lo . '&date=' . gmdate('Y-m-d', $jetzt) . '&last_date=' . gmdate('Y-m-d', $jetzt + 3 * 86400) . '&tz=UTC', 'wd_mosmix_lesen');
         case 'met': return array('https://api.met.no/weatherapi/locationforecast/2.0/complete?lat=' . $la . '&lon=' . $lo, 'wd_met_lesen');
-        case 'wttr': return array('https://wttr.in/' . $la . ',' . $lo . '?format=j1', function ($r) use ($la, $lo) { return wd_wttr_lesen($r, $la, $lo); });
+        case 'wttr': return array('https://wttr.in/' . wd_wttr_ort($la, $lo) . '?format=j1', function ($r) use ($la, $lo) { return wd_wttr_lesen($r, $la, $lo); });
         case 'openweather': return array('https://api.openweathermap.org/data/3.0/onecall?lat=' . $la . '&lon=' . $lo . '&units=metric&exclude=minutely,daily,alerts,current&appid=' . rawurlencode((string) $c['ow_key']), 'wd_ow_lesen');
         case 'weatherapi': return array('https://api.weatherapi.com/v1/forecast.json?key=' . rawurlencode((string) $c['wa_key']) . '&q=' . $la . ',' . $lo . '&days=3&aqi=no&alerts=no', 'wd_wa_lesen');
         case 'visualcrossing': return array('https://weather.visualcrossing.com/VisualCrossingWebServices/rest/services/timeline/' . $la . ',' . $lo . '/next3days?unitGroup=metric&include=hours&key=' . rawurlencode((string) $c['vc_key']), 'wd_vc_lesen');
@@ -470,8 +473,12 @@ function wd_ma_lesen($roh, $emma)
             if ($emma !== '' && strpos($e, '<value>' . $emma . '</value>') === false) { continue; }
             $ein = function ($tag) use ($e) { return preg_match('#<cap:' . $tag . '>(.*?)</cap:' . $tag . '>#s', $e, $t) ? wd_xml_wert($t[1]) : ''; };
             $art = $ein('event');
+            // 0.9.6: Bedingungen von MeteoAlarm (Stand 15.03.2024), Ziffer 5: Ausgabezeit, Quelle und Verweis stehen bei jeder Warnung.
+            $ma_stelle = preg_match('#<author>\s*<name>(.*?)</name>#s', $e, $ma_t) ? wd_xml_wert($ma_t[1]) : '';
+            $ma_zeit = wd_ts_iso($ein('sent') ?: $ein('effective'));
+            $ma_satz = sprintf(wd_t('QUELLE.MA_NENNUNG'), is_int($ma_zeit) ? date('d.m.Y H:i', $ma_zeit) : (string) $ma_zeit, $ma_stelle !== '' && stripos($ma_stelle, 'meteoalarm') === false ? $ma_stelle . ', ' : '');
             $o[] = array('id' => $ein('identifier'), 'status' => $ein('status') ?: 'Actual', 'msg' => $ein('message_type') ?: 'Alert', 'ii' => 0, 'gruppe' => '', 'art' => $art, 'stufe' => wd_stufe_aus_schwere($ein('severity')), 'vorab' => 0,
-                'beginn' => wd_ts_iso($ein('onset') ?: $ein('effective')), 'ende' => wd_ts_iso($ein('expires')), 'titel' => $art, 'volltext' => $art, 'quelle' => 'meteoalarm', 'verweise' => array());
+                'beginn' => wd_ts_iso($ein('onset') ?: $ein('effective')), 'ende' => wd_ts_iso($ein('expires')), 'titel' => $art, 'volltext' => trim($art . ' ' . $ma_satz), 'quelle' => 'meteoalarm', 'verweise' => array());
         }
     }
     return $o;
@@ -508,7 +515,7 @@ function wd_mehr_holen($c, $jetzt, $zwingen)
     }
     if (!empty($c['ma_ein']) && preg_match('/^[a-z\-]{3,40}\z/', (string) $c['ma_land'])) {
         $em = (string) $c['ma_emma'];
-        wd_einfach_holen('meteoalarm', 'https://feeds.meteoalarm.org/feeds/meteoalarm-legacy-atom-' . $c['ma_land'], function ($r) use ($em) { return wd_ma_lesen($r, $em); }, 'meteoalarm.json', 15, $jetzt, $zwingen);
+        wd_einfach_holen('meteoalarm', 'https://feeds.meteoalarm.org/feeds/meteoalarm-legacy-atom-' . $c['ma_land'], function ($r) use ($em) { return wd_ma_lesen($r, $em); }, 'meteoalarm.json', 5, $jetzt, $zwingen);     // 0.9.6: alle 5 Minuten, die Bedingungen verlangen hoechstens 10 Minuten Verzug
     }
     if (!empty($c['radar_ein']) && $pos !== null) {
         wd_einfach_holen('radar', 'https://api.brightsky.dev/radar?lat=' . $pos[0] . '&lon=' . $pos[1] . '&distance=5000&format=plain', function ($r) use ($jetzt) { $x = wd_radar_lesen($r, $jetzt); return $x === null ? null : array('min' => $x[0], 'mmh' => $x[1]); }, 'radar.json', 5, $jetzt, $zwingen, array('Accept-Encoding: gzip'));
@@ -598,4 +605,198 @@ function wd_kachel(array $st)
 {
     return array('ok' => !empty($st['jetzt_ok']) ? 1 : 0, 'temp_c' => $st['jetzt']['temp_c'] ?? null, 'gefuehlt_c' => $st['gefuehlt'] ?? null, 'herkunft' => $st['herkunft']['temp_c'] ?? 'keine',
         'stufe' => !empty($st['warn_ok']) ? (int) ($st['lagen'][0]['stufe'] ?? 0) : null, 'warnung' => isset($st['lagen'][0]) ? wd_warn_name($st['lagen'][0], wd_sprache()) : '', 'tmax' => $st['tage'][0]['tmax'] ?? null, 'tmin' => $st['tage'][0]['tmin'] ?? null, 'verlaesslich_k' => $st['bilanz_fehler'] ?? null, 'ts' => (int) ($st['ts'] ?? 0));
+}
+
+/* ------------------------------------ Bedienung 0.9.6: Listen, Klartext der Quellen, Suchen nur auf Knopfdruck ------------------------------------ */
+
+/** Teilregionen des Pollenflugs. Nummern und Namen wortgleich aus der DWD-Datei s31fg.json, gelesen am 05.11.2026. Nummer = partregion_id, bei einer Region ohne Teil (partregion_id -1) region_id: so liest es wd_pollen_lesen. */
+function wd_pollen_liste()
+{
+    return array(
+        11 => array('Schleswig-Holstein und Hamburg', 'Inseln und Marschen'), 12 => array('Schleswig-Holstein und Hamburg', 'Geest,Schleswig-Holstein und Hamburg'),
+        20 => array('Mecklenburg-Vorpommern', ''),
+        31 => array('Niedersachsen und Bremen', 'Westl. Niedersachsen/Bremen'), 32 => array('Niedersachsen und Bremen', 'Östl. Niedersachsen'),
+        41 => array('Nordrhein-Westfalen', 'Rhein.-Westfäl. Tiefland'), 42 => array('Nordrhein-Westfalen', 'Ostwestfalen'), 43 => array('Nordrhein-Westfalen', 'Mittelgebirge NRW'),
+        50 => array('Brandenburg und Berlin', ''),
+        61 => array('Sachsen-Anhalt', 'Tiefland Sachsen-Anhalt'), 62 => array('Sachsen-Anhalt', 'Harz'),
+        71 => array('Thüringen', 'Tiefland Thüringen'), 72 => array('Thüringen', 'Mittelgebirge Thüringen'),
+        81 => array('Sachsen', 'Tiefland Sachsen'), 82 => array('Sachsen', 'Mittelgebirge Sachsen'),
+        91 => array('Hessen', 'Nordhessen und hess. Mittelgebirge'), 92 => array('Hessen', 'Rhein-Main'),
+        101 => array('Rheinland-Pfalz und Saarland', 'Rhein, Pfalz, Nahe und Mosel'), 102 => array('Rheinland-Pfalz und Saarland', 'Mittelgebirgsbereich Rheinland-Pfalz'), 103 => array('Rheinland-Pfalz und Saarland', 'Saarland'),
+        111 => array('Baden-Württemberg', 'Oberrhein und unteres Neckartal'), 112 => array('Baden-Württemberg', 'Hohenlohe/mittlerer Neckar/Oberschwaben'), 113 => array('Baden-Württemberg', 'Mittelgebirge Baden-Württemberg'),
+        121 => array('Bayern', 'Allgäu/Oberbayern/Bay. Wald'), 122 => array('Bayern', 'Donauniederungen'), 123 => array('Bayern', 'Bayern nördl. der Donau, o. Bayr. Wald, o. Mainfranken'), 124 => array('Bayern', 'Mainfranken'),
+    );
+}
+
+/** Feednamen von feeds.meteoalarm.org, gelesen am 05.11.2026, deutscher und englischer Name. Deutschland fehlt mit Absicht: Dort gelten die DWD-Warnungen; ein alter Eintrag bleibt gueltig. */
+function wd_ma_laender()
+{
+    return array(
+        'andorra' => array('Andorra', 'Andorra'), 'belgium' => array('Belgien', 'Belgium'), 'bosnia-herzegovina' => array('Bosnien und Herzegowina', 'Bosnia and Herzegovina'), 'bulgaria' => array('Bulgarien', 'Bulgaria'),
+        'denmark' => array('Dänemark', 'Denmark'), 'estonia' => array('Estland', 'Estonia'), 'finland' => array('Finnland', 'Finland'), 'france' => array('Frankreich', 'France'), 'greece' => array('Griechenland', 'Greece'),
+        'ireland' => array('Irland', 'Ireland'), 'iceland' => array('Island', 'Iceland'), 'israel' => array('Israel', 'Israel'), 'italy' => array('Italien', 'Italy'), 'croatia' => array('Kroatien', 'Croatia'),
+        'latvia' => array('Lettland', 'Latvia'), 'lithuania' => array('Litauen', 'Lithuania'), 'luxembourg' => array('Luxemburg', 'Luxembourg'), 'malta' => array('Malta', 'Malta'), 'moldova' => array('Moldau', 'Moldova'),
+        'montenegro' => array('Montenegro', 'Montenegro'), 'netherlands' => array('Niederlande', 'Netherlands'), 'republic-of-north-macedonia' => array('Nordmazedonien', 'North Macedonia'), 'norway' => array('Norwegen', 'Norway'),
+        'austria' => array('Österreich', 'Austria'), 'poland' => array('Polen', 'Poland'), 'portugal' => array('Portugal', 'Portugal'), 'romania' => array('Rumänien', 'Romania'), 'sweden' => array('Schweden', 'Sweden'),
+        'switzerland' => array('Schweiz', 'Switzerland'), 'serbia' => array('Serbien', 'Serbia'), 'slovakia' => array('Slowakei', 'Slovakia'), 'slovenia' => array('Slowenien', 'Slovenia'), 'spain' => array('Spanien', 'Spain'),
+        'czechia' => array('Tschechien', 'Czech Republic'), 'ukraine' => array('Ukraine', 'Ukraine'), 'hungary' => array('Ungarn', 'Hungary'), 'united-kingdom' => array('Vereinigtes Königreich', 'United Kingdom'), 'cyprus' => array('Zypern', 'Cyprus'),
+    );
+}
+
+/** Auswahl fuer ein Feld: Wert => Anzeige, erster Eintrag leer. Die Eingabenpruefung bleibt die alte, ein Wert ausserhalb der Liste bleibt also gueltig. */
+function wd_auswahl_liste($k)
+{
+    $o = array('' => wd_t('TEXT.BITTE_WAEHLEN'));
+    if ($k === 'pollen_region') {
+        foreach (wd_pollen_liste() as $n => $e) { $o[(string) $n] = $e[0] . ($e[1] !== '' ? ': ' . $e[1] : '') . ' (' . $n . ')'; }
+    } elseif ($k === 'ma_land') {
+        $en = wd_sprache() === 'en';
+        $l = array();
+        foreach (wd_ma_laender() as $n => $e) { $l[$n] = $en ? $e[1] : $e[0]; }
+        if ($en) { asort($l); }
+        $o += $l;
+    }
+    return $o;
+}
+
+/** Fundstellen je Feld: array(Adresse, Sprachschluessel). Jede Adresse am 05.11.2026 geoeffnet. */
+function wd_feld_verweise()
+{
+    return array(
+        'om_apikey' => array(array('https://open-meteo.com/en/pricing', 'VERWEIS.OM')),
+        'pollen_region' => array(array('https://opendata.dwd.de/climate_environment/health/alerts/s31fg.json', 'VERWEIS.POLLEN')),
+        'nina_ars' => array(array('https://www.xrepository.de/details/urn:de:bund:destatis:bevoelkerungsstatistik:schluessel:rs', 'VERWEIS.ARS'), array('https://nina.api.bund.dev/', 'VERWEIS.NINA_API')),
+        'ma_land' => array(array('https://feeds.meteoalarm.org/', 'VERWEIS.MA_FEEDS')),
+        'ma_emma' => array(array('https://meteoalarm.org/', 'VERWEIS.MA_SEITE')),
+        'ow_key' => array(array('https://home.openweathermap.org/users/sign_up', 'VERWEIS.OW'), array('https://openweathermap.org/api/one-call-3', 'VERWEIS.OW_PREIS')),
+        'wa_key' => array(array('https://www.weatherapi.com/signup', 'VERWEIS.WA'), array('https://www.weatherapi.com/pricing', 'VERWEIS.WA_PREIS')),
+        'vc_key' => array(array('https://www.visualcrossing.com/sign-up/', 'VERWEIS.VC'), array('https://www.visualcrossing.com/weather-data-pricing/', 'VERWEIS.VC_PREIS')),
+        'tm_key' => array(array('https://app.tomorrow.io/signup', 'VERWEIS.TM'), array('https://www.tomorrow.io/weather-api/', 'VERWEIS.TM_PREIS')),
+        'mb_key' => array(array('https://business.meteoblue.com/products/weather-apis/free-weather-api', 'VERWEIS.MB')),
+    );
+}
+
+/** Technische Meldung in einen Satz. Station und Dienste getrennt: 403 heisst bei der Weiche etwas anderes als bei einem fremden Dienst. */
+function wd_quelle_klartext($n, $meldung, array $c)
+{
+    $m = (string) $meldung;
+    if ($m === '') { return wd_t('QUELLE.NOCH_NICHT'); }
+    if (!preg_match('/^HTTP (\d+)\z/', $m, $t)) { return $m; }
+    $h = (int) $t[1];
+    if ($n === 'station') {
+        $art = (string) ($c['station_art'] ?? 'weiche');
+        if ($art === 'empfang') { return wd_t('QUELLE.ST_EMPFANG'); }
+        if ($art === 'direkt') { return $h === 0 ? wd_t('QUELLE.ST_DIREKT_0') : sprintf(wd_t('QUELLE.K_HTTP'), $h); }
+        $k = array(0 => 'ST_0', 403 => 'ST_403', 404 => 'ST_404', 503 => 'ST_503');
+        return isset($k[$h]) ? wd_t('QUELLE.' . $k[$h]) : sprintf(wd_t('QUELLE.K_HTTP'), $h);
+    }
+    $k = array(0 => 'K_0', 401 => 'K_401', 403 => 'K_403', 429 => 'K_429');
+    return isset($k[$h]) ? wd_t('QUELLE.' . $k[$h]) : sprintf(wd_t('QUELLE.K_HTTP'), $h);
+}
+
+/** Eine Zeile der Quellenuebersicht: array(Lage, Meldung). Fehlt eine Eintragung oder wird die Quelle gar nicht gefragt, sagt sie das statt "keine gueltige Antwort". */
+function wd_quelle_anzeige($n, array $q, array $c, array $alle = array())
+{
+    $li = wd_quellen_liste();
+    $ein = isset($li[$n]) ? !empty($c[$li[$n]]) : !empty($q['ein']);
+    if (!$ein) { return array(wd_t('QUELLE.AUS'), ''); }
+    $leer = function ($k) use ($c) { return trim((string) ($c[$k] ?? '')) === ''; };
+    $pq = wd_prog_quellen();
+    $grund = '';
+    if ($n === 'pollen' && $leer('pollen_region')) { $grund = 'L_TEILREGION'; }
+    elseif ($n === 'nina' && $leer('nina_ars')) { $grund = 'L_ARS'; }
+    elseif ($n === 'meteoalarm' && $leer('ma_land')) { $grund = 'L_LAND'; }
+    elseif (in_array($n, array('dwd', 'brightsky'), true) && $leer('warnzelle')) { $grund = 'L_ZELLE'; }
+    elseif (isset($pq[$n]) && $pq[$n][1] !== '' && $n !== 'open_meteo' && $leer($pq[$n][1])) { $grund = 'L_SCHLUESSEL'; }
+    elseif ((isset($pq[$n]) || in_array($n, array('luft', 'radar'), true)) && ($leer('lat') || $leer('lon'))) { $grund = 'L_STANDORT'; }
+    elseif ($n === 'station') {
+        $art = (string) ($c['station_art'] ?? 'weiche');
+        if ($art === 'weiche' && !wd_st_vorhanden($c)) { $grund = 'L_WEICHE'; }
+        elseif ($art === 'direkt' && $leer('station_host1') && $leer('station_host2')) { $grund = 'L_ADRESSE'; }
+    }
+    if ($grund !== '') { return array(wd_t('QUELLE.' . $grund), ''); }
+    if (!empty($q['ok'])) { return array(wd_t('QUELLE.OK'), (string) ($q['meldung'] ?? '')); }
+    if ($n === 'brightsky' && !empty($alle['dwd']['ok'])) { return array(wd_t('QUELLE.L_RUECKFALL'), wd_t('QUELLE.RUECKFALL_T')); }
+    $me = (string) ($q['meldung'] ?? '');
+    return array(wd_t($me === '' ? 'QUELLE.L_NOCH' : 'QUELLE.NICHT'), wd_quelle_klartext($n, $me, $c));
+}
+
+/** Fuer den Reiter Test: Ist das Token der Weiche lesbar? null = keine Weiche im Spiel. Das Token selbst geht nie hinaus. */
+function wd_st_token_lage($c)
+{
+    if (empty($c['station_ein']) || (string) $c['station_art'] !== 'weiche' || !wd_st_vorhanden($c)) { return null; }
+    return is_array(wd_json_lesen(wd_st_token_datei($c)));
+}
+
+/** Vergleichsform fuer die Gemeindesuche, ohne mbstring: Umlaute und Eszett ausgeschrieben, Kleinbuchstaben. */
+function wd_such_form($s)
+{
+    return strtolower(strtr((string) $s, array('ä' => 'ae', 'ö' => 'oe', 'ü' => 'ue', 'Ä' => 'ae', 'Ö' => 'oe', 'Ü' => 'ue', 'ß' => 'ss')));
+}
+
+/**
+ * Amtliche Liste der Regionalschluessel (Statistisches Bundesamt, xRepository). Nur auf Knopfdruck, nie im Takt: erst die gueltige Fassung erfragen, dann die Datei.
+ * Alte Fassungen verschwinden dort (die 2021er Adresse aus der NINA-Beschreibung antwortet am 05.11.2026 mit 404), deshalb keine feste Adresse.
+ * Zeilen mit Hinweis (Stadt-/Ortsteile der Stadtstaaten) entfallen: Ihre ersten 5 Stellen sind kein Kreis. Rueckgabe array(Fassung, Zeilen) oder null.
+ */
+function wd_ars_liste()
+{
+    $f = wd_tmpdir() . '/ars_liste.json';
+    $d = wd_json_lesen($f);
+    if (is_array($d) && isset($d['ts'], $d['fassung'], $d['z']) && time() - (int) $d['ts'] < 86400) { return array((string) $d['fassung'], (array) $d['z']); }
+    $u = 'https://www.xrepository.de/api/';
+    $urn = 'urn:de:bund:destatis:bevoelkerungsstatistik:schluessel:rs';
+    list($code, $b) = wd_http($u . 'codeliste/' . $urn . '/gueltigeVersion', 20);
+    if ($code !== 200 || !preg_match('#<dat:version>(\d{4}-\d{2}-\d{2})</dat:version>#', (string) $b, $t)) { return null; }
+    list($code, $b) = wd_http($u . 'xrepository/' . $urn . '_' . $t[1] . '/download/Regionalschl_ssel_' . $t[1] . '.json', 40);
+    $j = $code === 200 ? json_decode((string) $b, true) : null;
+    if (!is_array($j) || !isset($j['daten']) || !is_array($j['daten'])) { return null; }
+    $z = array();
+    foreach ($j['daten'] as $e) {
+        if (!is_array($e) || !isset($e[0], $e[1]) || !is_string($e[0]) || !is_string($e[1]) || !preg_match('/^[0-9]{12}\z/', $e[0]) || !empty($e[2])) { continue; }
+        $z[] = array($e[0], $e[1]);
+    }
+    if (count($z) < 1000) { return null; }     // Inhalt pruefen, nicht HTTP 200 glauben
+    wd_json_schreiben($f, array('ts' => time(), 'fassung' => $t[1], 'z' => $z));
+    return array($t[1], $z);
+}
+
+/** Gemeindesuche. Der Suchtext bleibt auf dem Geraet und in keinem Protokoll. Rueckgabe array('stand','such','treffer','mehr','fassung'). */
+function wd_ars_suchen($such)
+{
+    $such = trim(substr(trim((string) $such), 0, 60));
+    $o = array('stand' => 'ok', 'such' => $such, 'treffer' => array(), 'mehr' => 0, 'fassung' => '');
+    $nf = wd_such_form($such);
+    if (strlen($nf) < 2) { $o['stand'] = 'kurz'; return $o; }
+    $l = wd_ars_liste();
+    if ($l === null) { $o['stand'] = 'netz'; return $o; }
+    $o['fassung'] = $l[0];
+    $anf = array(); $rest = array();
+    foreach ($l[1] as $e) {
+        $p = strpos(wd_such_form($e[1]), $nf);
+        if ($p === false) { continue; }
+        if ($p === 0) { $anf[] = $e; } else { $rest[] = $e; }
+    }
+    $alle = array_merge($anf, $rest);
+    $o['mehr'] = count($alle) > 40 ? 1 : 0;
+    $o['treffer'] = array_slice($alle, 0, 40);
+    if (!$alle) { $o['stand'] = 'leer'; }
+    return $o;
+}
+
+/** EMMA-Kennungen aus dem Atom-Feed eines Landes. Der Feed nennt nur Regionen, fuer die gerade eine Warnung gilt. Rueckgabe Kennung => Name, oder null, wenn der Feed nicht zu lesen war. Nur auf Knopfdruck. */
+function wd_ma_regionen($land)
+{
+    if (!preg_match('/^[a-z\-]{3,40}\z/', (string) $land)) { return null; }
+    list($code, $b) = wd_http('https://feeds.meteoalarm.org/feeds/meteoalarm-legacy-atom-' . $land, 25);
+    if ($code !== 200 || strpos((string) $b, '<feed') === false) { return null; }
+    $o = array();
+    if (preg_match_all('#<entry>(.*?)</entry>#s', (string) $b, $m)) {
+        foreach ($m[1] as $e) {
+            if (!preg_match('#<valueName>EMMA_ID</valueName>\s*<value>([A-Z0-9]{2,12})</value>#', $e, $t)) { continue; }
+            $o[$t[1]] = preg_match('#<cap:areaDesc>(.*?)</cap:areaDesc>#s', $e, $a) ? wd_xml_wert($a[1]) : '';
+        }
+    }
+    asort($o);
+    return $o;
 }

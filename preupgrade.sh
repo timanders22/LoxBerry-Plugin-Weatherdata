@@ -5,10 +5,10 @@ umask 077
 if [ -z "$BASE" ] || [ ! -d "$BASE/config/plugins" ] || [ ! -d "$BASE/data/plugins" ] \
    || [ ! -f "$BASE/config/system/general.json" ]; then
     echo "<WARNING> Kein LoxBerry-Wurzelverzeichnis erkannt ('$BASE') - dieses Skript tut nichts."
-    exit 0
+    exit 2
 fi
 case "$PFOLDER" in
-    ''|*/*|*..*) echo "<WARNING> Unzulaessiger Ordnername '$PFOLDER' - dieses Skript tut nichts."; exit 0 ;;
+    ''|*/*|*..*) echo "<WARNING> Unzulaessiger Ordnername '$PFOLDER' - dieses Skript tut nichts."; exit 2 ;;
 esac
 
 MARKE="$BASE/data/plugins/$PFOLDER.upgrade_laeuft"

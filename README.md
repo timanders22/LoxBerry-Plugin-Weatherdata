@@ -13,7 +13,7 @@ Liefert Wetterwerte, Prognosen, amtliche Warnungen, Handlungssignale und fertige
 - **Fassade:** höchste Strahlung auf senkrechter Fläche je Ausrichtung (ab Werk aus).
 - **Station auf drei Wegen:** über die Ecowitt-Weiche, direkt (`get_livedata_info`, zwei Adressen) oder per Empfang (Ecowitt- und Wunderground-Protokoll an `wd_empfang.php` mit Token).
 - **Kachelwert und kleine Seite:** `wd.php?kachel=1` als JSON, `wetter.php` für den Webseiten-Baustein der App.
-- **Ab Werk aus, abschaltbar und im Reiter Quellen benannt:** NINA (Nutzungsbedingungen nicht geklärt, Rückfrage beim BBK steht aus; nur Nicht-Wetter-Meldungen, Wortlaut unverändert), Meteoalarm (Bedingungen nicht gelesen; nur für Nutzer außerhalb Deutschlands), OpenWeather, WeatherAPI, Visual Crossing, Tomorrow.io, Meteoblue (je eigener Schlüssel; die Adapter sind nach der Dienstdoku gebaut und ohne Schlüssel nie gegen eine echte Antwort gefahren). Wer einschaltet, klärt die Bedingungen selbst.
+- **Ab Werk aus, abschaltbar und im Reiter Quellen benannt:** NINA (laut Hinweis in den Meldungen nur inhaltlich unverändert und nicht gewerblich; eine Lizenz nennt die Schnittstelle nicht; nur Nicht-Wetter-Meldungen, Wortlaut unverändert), Meteoalarm (Lizenz wie CC BY 4.0 mit Zusatzregeln, die das Plugin erfüllt; nur für Nutzer außerhalb Deutschlands), OpenWeather, WeatherAPI, Visual Crossing, Tomorrow.io, Meteoblue (je eigener Schlüssel; die Adapter sind nach der Dienstdoku gebaut und ohne Schlüssel nie gegen eine echte Antwort gefahren). Wer einschaltet, klärt die Bedingungen selbst.
 - **Emulator des Loxone-Wetterdienstes,** ab Werk aus, nicht von Loxone, siehe eigener Abschnitt.
 - **Warnungen** vom Deutschen Wetterdienst, je Warnzelle (DWD-CAP). Fällt der DWD aus, springt Bright Sky ein. Warnstufe 0 bis 4 ist die amtliche Schwere. Keine Warnung (0) und nichts bekannt (Strich) sind verschieden.
 - **Ist-Werte**, wahlweise von der eigenen Station über die Ecowitt-Weiche. Fehlt die Station oder ist sie nicht plausibel, gilt der Prognosewert für jetzt, gekennzeichnet mit `jetzt/ist_ersatz`.
@@ -47,7 +47,7 @@ Gewitter der Stufe 1 (31, 90) werden nur angezeigt und nie gesprochen; für sie 
 
 ## Standort und Warnzelle
 
-Beides tragen Sie selbst ein. Die Warnzelle lässt sich aus dem Standort vorschlagen; übernommen wird sie erst, wenn Sie sie eintragen. Der Standort geht gerundet (ab Werk 3 Nachkommastellen) an die eingeschalteten Dienste, ab Werk Open-Meteo, Bright Sky (MOSMIX, Radar) und MET Norway, eingeschaltet auch wttr.in; die Warnzelle an den DWD und im Rückfall an Bright Sky; der Vorschlag der Warnzelle fragt einmal Bright Sky mit dem Standort. Jeder Dienst lässt sich im Reiter Quellen abschalten. Ins Protokoll und in MQTT kommt beides nie, in eine Sicherungsdatei nur als Ihre Einstellung. Warnungen gibt es nur für Deutschland.
+Beides tragen Sie selbst ein. Die Warnzelle lässt sich aus dem Standort vorschlagen; übernommen wird sie erst, wenn Sie sie eintragen. Der Standort geht gerundet (ab Werk 3 Nachkommastellen) an die eingeschalteten Dienste, ab Werk Open-Meteo, Bright Sky (MOSMIX, Radar) und MET Norway, eingeschaltet auch wttr.in, dorthin immer mit 2 Nachkommastellen; die Warnzelle an den DWD und im Rückfall an Bright Sky; der Vorschlag der Warnzelle fragt einmal Bright Sky mit dem Standort. Jeder Dienst lässt sich im Reiter Quellen abschalten. Ins Protokoll und in MQTT kommt beides nie, in eine Sicherungsdatei nur als Ihre Einstellung. Warnungen gibt es nur für Deutschland.
 
 ## MQTT
 
@@ -92,7 +92,24 @@ Dieses Plugin enthält keinen fremden Code. Es liest:
 - Formeln: US National Weather Service (Windchill, Hitzeindex).
 - Die Ecowitt-Weiche ist ein eigenes Plugin und bleibt getrennt installiert.
 
-Die Unwetterzentrale ist wegen ihrer Bedingungen bewusst nicht eingebaut. **WetterOnline ist ebenfalls nicht eingebaut:** Es gibt keine öffentlich dokumentierte Schnittstelle, und die AGB (Fassung vom 24.02.2025, Ziffer 2) untersagen die unberechtigte Vervielfältigung und Speicherung der Inhalte und verweisen auf eine Anfrage vorab. Das Antwortformat des Emulators ist am öffentlichen Quelltext von Weather4Lox (Apache-2.0, Michael Schlenstedt, Jan Wachsmuth) abgelesen; es ist keine Zeile daraus übernommen. „Loxone“ ist eine Marke ihres Inhabers. Lizenz dieses Plugins: MIT.
+Die Unwetterzentrale ist wegen ihrer Bedingungen bewusst nicht eingebaut. **WetterOnline ist ebenfalls nicht eingebaut, anders als bei Weather4Lox:** Es gibt keine öffentlich dokumentierte Schnittstelle; Weather4Lox nutzt Adressen, die für die WetterOnline-App gedacht sind. Die AGB (Fassung vom 24.02.2025, Ziffer 2) untersagen die unberechtigte Vervielfältigung und Speicherung der Inhalte und verweisen auf eine Anfrage vorab. Das Antwortformat des Emulators ist am öffentlichen Quelltext von Weather4Lox (Apache-2.0, Michael Schlenstedt, Jan Wachsmuth) abgelesen; es ist keine Zeile daraus übernommen. „Loxone“ ist eine Marke ihres Inhabers. Lizenz dieses Plugins: MIT.
+
+## Neu in 0.9.6
+
+Am Gerät nur der Befund gemessen, die Korrektur gegen die echte Weiche und eine nachgebildete Station.
+
+- **Station über die Ecowitt-Weiche:** Das Plugin suchte das Token in einer Datei, die es nicht gibt, und bekam darum HTTP 403, sobald die Weiche ein Token verlangt. Es liest jetzt `ecowitt.json` im Ordner der Weiche. Das Token bleibt im Speicher.
+- **Quellenübersicht:** Anzeigenamen statt technischer Namen. Sie sagt, was fehlt („keine Teilregion eingetragen“), und dass Bright Sky für Warnungen nur Rückfall ist („nur Rückfall, nicht gefragt“). HTTP 403 und ähnliche Antworten stehen im Klartext.
+- **wttr.in** bekommt den Standort immer mit genau 2 Nachkommastellen, gleich welche Rundung eingestellt ist.
+- **NINA:** Suche nach der Gemeinde in der amtlichen Liste des Statistischen Bundesamts, nur auf Knopfdruck. Der Suchtext verlässt das Gerät nicht.
+- **Meteoalarm:** Die Bedingungen sind gelesen (Stand 15.03.2024): Nutzung wie CC BY 4.0 mit Zusatzregeln. Das Plugin nennt deshalb bei jeder Warnung Ausgabezeit und Quelle, verweist auf www.meteoalarm.org und fragt alle 5 statt 15 Minuten. Auswahl des Landes mit Namen. Hinweis, dass der Dienst nur für Nutzer außerhalb Deutschlands gedacht ist. Regionen lassen sich aus dem Feed übernehmen; er nennt nur Regionen mit aktueller Warnung.
+- **Pollen:** Auswahl der Teilregion mit den Namen aus der DWD-Datei. Ein schon eingetragener Wert bleibt gültig, auch beim Land von Meteoalarm.
+- **Schlüssel:** Je Dienst ein Link zur Anmeldung und ein Satz zu den freien Grenzen, Stand 05.11.2026. Bei Meteoblue reicht das freie Guthaben bei stündlichem Abruf nicht das ganze Jahr.
+- **Sicherung:** Die Schlüssel der Dienste stehen nicht mehr in der Datei; beim Zurückspielen bleiben die eingetragenen. Eine ältere Datei mit Schlüsseln wird weiter angenommen. Das Aktionstoken bleibt darin.
+- **Reiter Quellen:** NINA, Meteoalarm und die Dienste mit Schlüssel haben einen eigenen Speichern-Knopf. Der Reiter sagt bei der Station, dass bei installierter Weiche nichts einzutragen ist.
+- **Update:** Scheitert die Sicherung oder die Marke, bricht das Update ab und die bisherige Fassung bleibt.
+- **Sprechtoken:** Ein von Hand eingetragenes Alexa- oder Google-Token wird nicht mehr vom Token des Nachbar-Plugins überschrieben.
+- **Formular:** Tafel- und HomePod-Felder gehören jetzt zu den Feldern, die eine Beanstandung im Formular mitführt und markiert. Ein beanstandeter Tafel- oder HomePod-Name bleibt zur Korrektur im Feld stehen.
 
 ## Neu in 0.9.4
 

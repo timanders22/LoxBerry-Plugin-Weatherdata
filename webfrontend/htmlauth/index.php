@@ -23,7 +23,7 @@ $wf_vor_heilung = wd_inhalt_oder_null($wf_p['config']);
 wd_selbstheilung();
 $wf_post = isset($_SERVER['REQUEST_METHOD']) && $_SERVER['REQUEST_METHOD'] === 'POST';
 $wf_saved = false; $wf_err = ''; $wf_note = ''; $wf_note_art = 'ok'; $wf_fehler = array(); $wf_hinweise = array();
-$wf_x2 = null; $wf_x2neu = null;
+$wf_x2 = null; $wf_x2neu = null; $wf_hilfe = array();
 $wf_wache = wd_wachposten();
 if ($wf_wache !== '') {
     $wf_m = isset($_POST['activetab']) && is_string($_POST['activetab']) ? $_POST['activetab'] : null;
@@ -57,9 +57,7 @@ if ($wf_post && isset($_POST['vorlage'])) {
 }
 // ---------- Sichern: Download mit allen Einstellungen, Standort nur als Einstellung ----------
 if ($wf_post && isset($_POST['wd_sichern'])) {
-    $wf_v = wd_config();
-    unset($wf_v['ansage_token_herkunft']);
-    if (isset($wf_v['tts']) && is_array($wf_v['tts'])) { $wf_v['tts'] = ansage_sicherung_bereinigen($wf_v['tts']); }
+    $wf_v = wd_sicherung_stand();
     $wf_alt = wd_rueckspiel_altwerte();
     if ($wf_alt) { $wf_v = array('_warnung' => sprintf(wd_t('SICH.WARNKOPF'), implode(' ', $wf_alt))) + $wf_v; }
     $wf_js = json_encode($wf_v, JSON_PRETTY_PRINT | JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES);
@@ -119,6 +117,44 @@ if ($wf_post && isset($_POST['zelle_finden'])) {
     if ($wf_vs === null) { $wf_note_art = 'warn'; $wf_note = wd_t('MELD.ZELLE_NICHT'); }
     else { $wf_note = sprintf(wd_t('MELD.ZELLE_VORSCHLAG'), $wf_vs[0], $wf_vs[1]); }
 }
+// ---------- 0.9.6: Regionalschluessel und Meteoalarm-Region, nur auf Knopfdruck ----------
+if ($wf_post && isset($_POST['nina_suchen'])) {
+    $wf_h = wd_ars_suchen(isset($_POST['nina_such']) && is_string($_POST['nina_such']) ? $_POST['nina_such'] : '');
+    $wf_hilfe['such'] = $wf_h['such']; $wf_hilfe['ars'] = $wf_h['treffer'];
+    if ($wf_h['stand'] === 'ok') { $wf_note = sprintf(wd_t('MELD.ARS_TREFFER'), count($wf_h['treffer']), $wf_h['fassung']) . ($wf_h['mehr'] ? ' ' . wd_t('MELD.ARS_MEHR') : ''); }
+    else { $wf_note_art = 'warn'; $wf_note = wd_t($wf_h['stand'] === 'kurz' ? 'MELD.ARS_KURZ' : ($wf_h['stand'] === 'leer' ? 'MELD.ARS_LEER' : 'MELD.ARS_NETZ')); }
+}
+if ($wf_post && isset($_POST['nina_setzen'])) {
+    $wf_v = wd_wert_pruefen('nina_ars', isset($_POST['nina_wert']) ? $_POST['nina_wert'] : null);
+    if (!$wf_v[0] || $wf_v[1] === '') {
+        $wf_note_art = 'warn'; $wf_note = wd_t('MELD.HILFE_UNGUELTIG');
+    } else {
+        $wf_c = wd_config(); $wf_c['nina_ars'] = $wf_v[1];
+        if (wd_config_speichern($wf_c)) { wd_zweitschrift($wf_c); $wf_note = wd_t('MELD.ARS_UEBERNOMMEN'); } else { $wf_err = wd_t('MELD.SPEICHERN_FEHL'); }
+    }
+}
+if ($wf_post && isset($_POST['ma_suchen'])) {
+    $wf_v = wd_wert_pruefen('ma_land', isset($_POST['ma_such_land']) ? $_POST['ma_such_land'] : null);
+    if (!$wf_v[0] || $wf_v[1] === '') {
+        $wf_note_art = 'warn'; $wf_note = wd_t('MELD.MA_LAND');
+    } else {
+        $wf_h = wd_ma_regionen($wf_v[1]);
+        $wf_hilfe['ma_land'] = $wf_v[1];
+        if ($wf_h === null) { $wf_note_art = 'warn'; $wf_note = wd_t('MELD.MA_NETZ'); }
+        elseif (!$wf_h) { $wf_note_art = 'warn'; $wf_note = wd_t('MELD.MA_LEER'); }
+        else { $wf_hilfe['ma'] = $wf_h; $wf_note = sprintf(wd_t('MELD.MA_TREFFER'), count($wf_h)); }
+    }
+}
+if ($wf_post && isset($_POST['ma_setzen'])) {
+    $wf_v = wd_wert_pruefen('ma_land', isset($_POST['ma_wert_land']) ? $_POST['ma_wert_land'] : null);
+    $wf_w2 = wd_wert_pruefen('ma_emma', isset($_POST['ma_wert']) ? $_POST['ma_wert'] : null);
+    if (!$wf_v[0] || !$wf_w2[0] || $wf_v[1] === '' || $wf_w2[1] === '') {
+        $wf_note_art = 'warn'; $wf_note = wd_t('MELD.HILFE_UNGUELTIG');
+    } else {
+        $wf_c = wd_config(); $wf_c['ma_land'] = $wf_v[1]; $wf_c['ma_emma'] = $wf_w2[1];
+        if (wd_config_speichern($wf_c)) { wd_zweitschrift($wf_c); $wf_note = wd_t('MELD.MA_UEBERNOMMEN'); } else { $wf_err = wd_t('MELD.SPEICHERN_FEHL'); }
+    }
+}
 if ($wf_post && isset($_POST['clearlog'])) {
     $wf_ce = dirname($wf_p['log']) . '/cron.err';
     if (empty($_POST['clearlog_ok'])) {
@@ -135,7 +171,7 @@ if ($wf_post && isset($_POST['token_neu'])) {
     if (wd_config_speichern($wf_c)) { wd_zweitschrift($wf_c); $wf_note = wd_t('MELD.TOKEN_NEU'); } else { $wf_err = wd_t('MELD.SPEICHERN_FEHL'); }
 }
 // ---------- Speichern, je Formular ein Teil der Feldtabelle ----------
-foreach (array('save', 'quellen_save', 'warn_save', 'mqtt_save', 'emu_save') as $wf_form) {
+foreach (array('save', 'quellen_save', 'zusatz_save', 'warn_save', 'mqtt_save', 'emu_save') as $wf_form) {
     if (!$wf_post || !isset($_POST[$wf_form])) { continue; }
     $wf_alt = wd_config(); $wf_neu = $wf_alt; $wf_bean = array(); $wf_werte = array(); $wf_ziele_post = null;
     foreach (wd_felder() as $wf_k => $wf_f) {
@@ -159,13 +195,15 @@ foreach (array('save', 'quellen_save', 'warn_save', 'mqtt_save', 'emu_save') as 
         $wf_tm = array(); $wf_tb = array(); $wf_th = array();
         $wf_neu['tts'] = ansage_formular_lesen($_POST, $wf_alt['tts'], $wf_tm, $wf_tb, array('modi' => wd_ansage_modi(), 'ziele' => true, 'token_vor_ort' => true, 'aus_gewinnt' => true), wd_ansage_k(), $wf_th);
         list($wf_neu['ansage_regeln']) = ansage_regeln_formular($_POST, wd_ansage_regeln($wf_alt), array(), $wf_tm, $wf_tb, wd_ansage_k());
+        // 0.9.5: ein eingetipptes oder geloeschtes Sprechtoken ist nicht mehr vom Nachbarn; bis 0.9.4 ueberschrieb es der naechste Abgleich.
+        $wf_neu['ansage_token_herkunft'] = ansage_token_herkunft_formular($_POST, isset($wf_alt['ansage_token_herkunft']) ? $wf_alt['ansage_token_herkunft'] : array());
         foreach ($wf_tm as $wf_t) { $wf_fehler[] = $wf_t['text']; }
         foreach ($wf_tb as $wf_t) { $wf_bean[] = $wf_t; }
         foreach ($wf_th as $wf_t) { $wf_hinweise[] = $wf_t['text']; }
         // X-2: auch Sprachausgabe, Regeln und Ziele reisen zurueck, nie ein Token.
-        foreach (array_merge(ansage_x2_felder(), ansage_regeln_x2_felder()) as $wf_xf) {
+        foreach (array_merge(ansage_x2_felder(), ansage_regeln_x2_felder(), array('ansage_tafel_ein', 'ansage_tafel_namen', 'ansage_homepod_ein', 'ansage_homepod_geraet')) as $wf_xf) {     // 0.9.5: Tafel und HomePod dazu
             if (substr($wf_xf, -6) === '_token') { continue; }
-            if ($wf_xf === 'ansage_ruhe_ein') { $wf_werte[$wf_xf] = isset($_POST[$wf_xf]) ? '1' : '0'; continue; }
+            if (in_array($wf_xf, array('ansage_ruhe_ein', 'ansage_tafel_ein', 'ansage_homepod_ein'), true)) { $wf_werte[$wf_xf] = isset($_POST[$wf_xf]) ? '1' : '0'; continue; }
             if (isset($_POST[$wf_xf]) && is_string($_POST[$wf_xf]) && strlen($_POST[$wf_xf]) <= 4000) { $wf_werte[$wf_xf] = $_POST[$wf_xf]; }
         }
         foreach ($_POST as $wf_xf => $wf_xw) {
@@ -186,7 +224,7 @@ foreach (array('save', 'quellen_save', 'warn_save', 'mqtt_save', 'emu_save') as 
 }
 // ---------- POST, Umleitung, GET ----------
 if ($wf_post) {
-    if (wd_json_schreiben(wf_einmal_datei(), array('zeit' => time(), 'saved' => $wf_saved ? 1 : 0, 'err' => $wf_err, 'note' => $wf_note, 'art' => $wf_note_art, 'fehler' => $wf_fehler, 'hinweise' => $wf_hinweise, 'x2' => $wf_x2neu))) {
+    if (wd_json_schreiben(wf_einmal_datei(), array('zeit' => time(), 'saved' => $wf_saved ? 1 : 0, 'err' => $wf_err, 'note' => $wf_note, 'art' => $wf_note_art, 'fehler' => $wf_fehler, 'hinweise' => $wf_hinweise, 'x2' => $wf_x2neu, 'hilfe' => $wf_hilfe))) {
         header('Location: index.php?form=' . substr($wf_tab, 4), true, 303);
         exit;
     }
@@ -200,6 +238,7 @@ if ($wf_post) {
         $wf_fehler = array_values(array_filter((array) $wf_e['fehler'], 'is_string'));
         $wf_hinweise = array_merge($wf_hinweise, array_values(array_filter((array) $wf_e['hinweise'], 'is_string')));
         $wf_x2 = is_array($wf_e['x2']) ? $wf_e['x2'] : null;
+        $wf_hilfe = isset($wf_e['hilfe']) && is_array($wf_e['hilfe']) ? $wf_e['hilfe'] : array();
     }
 }
 $wf_cfg = wd_config();
@@ -214,6 +253,16 @@ function wf_w($k)
     return (string) $wf_cfg[$k];
 }
 function wf_m($k) { global $wf_bean; return in_array($k, $wf_bean, true) ? ' class="sm-beanstandet"' : ''; }
+/** Auswahl aus einer Liste. Ein eingetragener Wert ausserhalb der Liste bleibt als eigene Zeile stehen und wird beim Speichern nicht verloren. */
+function wf_auswahl($name, $k, $ist, $zusatz = '')
+{
+    $li = wd_auswahl_liste($k);
+    $o = '<select data-role="none" id="' . wd_e($name) . '" name="' . wd_e($name) . '"' . $zusatz . '>';
+    foreach ($li as $w => $t) { $o .= '<option value="' . wd_e((string) $w) . '"' . ((string) $w === (string) $ist ? ' selected' : '') . '>' . wd_e($t) . '</option>'; }
+    if ((string) $ist !== '' && !array_key_exists((string) $ist, $li)) { $o .= '<option value="' . wd_e($ist) . '" selected>' . wd_e(sprintf(wd_t('TEXT.LISTE_EIGEN'), $ist)) . '</option>'; }
+    return $o . '</select>';
+}
+function wf_verweis($u, $t) { return '<a href="' . wd_e($u) . '" target="_blank" rel="noopener">' . wd_e($t) . '</a>'; }
 /** Ein Feld nach der Feldtabelle; Name und Hilfe aus der Sprachdatei. */
 function wf_feld($k)
 {
@@ -231,12 +280,16 @@ function wf_feld($k)
     } elseif ($f[1] === 'g') {
         $o .= '<label for="' . $k . '">' . $l . '</label><input data-role="none" type="password" autocomplete="new-password" id="' . $k . '" name="' . $k . '" value="" placeholder="' . wd_e((string) $GLOBALS['wf_cfg'][$k] !== '' ? wd_t('TEXT.GESETZT') : '') . '"' . wf_m($k) . '>';
         $o .= '<label style="display:inline-flex;align-items:center;gap:6px;font-weight:400;"><input data-role="none" type="checkbox" name="' . $k . '_loeschen" value="1"> ' . wd_e(wd_t('TEXT.LOESCHEN')) . '</label>';
+    } elseif ($f[1] === 'region' || $f[1] === 'land') {
+        $o .= '<label for="' . $k . '">' . $l . '</label>' . wf_auswahl($k, $k, wf_w($k), wf_m($k));
     } elseif ($f[1] === 'u') {
         $o .= '<label for="' . $k . '">' . $l . '</label><input data-role="none" type="time" id="' . $k . '" name="' . $k . '" value="' . $v . '"' . wf_m($k) . '>';
     } else {
         $o .= '<label for="' . $k . '">' . $l . '</label><input data-role="none" type="text" id="' . $k . '" name="' . $k . '" value="' . $v . '"' . wf_m($k) . '>';
     }
     if (strpos($h, 'HILFE.') !== 0) { $o .= '<div class="sm-hilfe">' . wd_e($h) . '</div>'; }
+    $wf_vw = wd_feld_verweise();
+    if (isset($wf_vw[$k])) { $wf_vt = array(); foreach ($wf_vw[$k] as $wf_vz) { $wf_vt[] = wf_verweis($wf_vz[0], wd_t($wf_vz[1])); } $o .= '<div class="sm-hilfe">' . implode(' &middot; ', $wf_vt) . '</div>'; }
     return $o . "</div>\n";
 }
 function wf_wert($w) { return $w === null || $w === '' ? '&ndash;' : wd_e(is_float($w) ? rtrim(rtrim(number_format($w, 1, '.', ''), '0'), '.') : (string) $w); }
@@ -252,7 +305,7 @@ if ($wf_frame) { LBWeb::lbheader('Weatherdata', 'https://wiki.loxberry.de/plugin
 .sm-wrap { max-width: 940px; margin: 0 auto; font-family: -apple-system, 'Segoe UI', Roboto, sans-serif; color: #333; }
 .sm-wrap h2 { color: #6dac20; margin: 24px 0 10px; font-size: 1.15em; border-bottom: 2px solid #e0e0e0; padding-bottom: 6px; }
 .sm-wrap label { display: block; font-weight: 600; font-size: 0.88em; color: #555; margin: 10px 0 4px; }
-.sm-wrap input[type=text], .sm-wrap input[type=number], .sm-wrap select, .sm-wrap textarea {
+.sm-wrap input[type=text], .sm-wrap input[type=password], .sm-wrap input[type=number], .sm-wrap select, .sm-wrap textarea {
   width: 100%; padding: 8px 10px; border: 1px solid #ccc; border-radius: 6px; font-size: 0.95em; box-sizing: border-box; }
 .sm-wrap input[type=checkbox] { width: 17px; height: 17px; margin: 0; vertical-align: middle; }
 .sm-row { display: flex; gap: 12px; flex-wrap: wrap; }
@@ -431,9 +484,9 @@ if ($wf_frame) { LBWeb::lbheader('Weatherdata', 'https://wiki.loxberry.de/plugin
 <div class="sm-hinweis"><?= wd_e(wd_t('TEXT.QUELLEN_HILFE')) ?></div>
 <?php if (!empty($wf_st['quellen'])) { ?>
 <div class="sm-breit"><table class="sm-tbl"><tr><th><?= wd_e(wd_t('TEXT.T_QUELLE')) ?></th><th><?= wd_e(wd_t('TEXT.T_LAGE')) ?></th><th><?= wd_e(wd_t('TEXT.T_ALTER')) ?></th><th><?= wd_e(wd_t('TEXT.T_MELDUNG')) ?></th></tr>
-<?php foreach ((array) $wf_st['quellen'] as $wf_k => $wf_q) { ?><tr><td><?= wd_e(wd_t('QUELLE.N_' . $wf_k)) ?></td><td><?= wd_e(wd_t(!$wf_q['ein'] ? 'QUELLE.AUS' : ($wf_q['ok'] ? 'QUELLE.OK' : 'QUELLE.NICHT'))) ?></td><td><?= wf_alter($wf_q['alter_s']) ?></td><td class="sm-small"><?= wd_e($wf_q['meldung']) ?></td></tr><?php } ?>
+<?php foreach ((array) $wf_st['quellen'] as $wf_k => $wf_q) { list($wf_ql, $wf_qm) = wd_quelle_anzeige($wf_k, $wf_q, $wf_cfg, (array) $wf_st['quellen']); ?><tr><td><?= wd_e(wd_t('QUELLE.N_' . $wf_k)) ?></td><td><?= wd_e($wf_ql) ?></td><td><?= wf_alter($wf_q['alter_s']) ?></td><td class="sm-small"><?= wd_e($wf_qm) ?></td></tr><?php } ?>
 </table></div><?php } ?>
-<div class="sm-legende"><span><i class="sm-punkt sm-b-aktion"></i> <?= wd_e(wd_t('LEGENDE.AKTION')) ?></span></div>
+<div class="sm-legende"><span><i class="sm-punkt sm-b-lesen"></i> <?= wd_e(wd_t('LEGENDE.LESEN')) ?></span><span><i class="sm-punkt sm-b-aktion"></i> <?= wd_e(wd_t('LEGENDE.AKTION')) ?></span></div>
 <form action="index.php" method="post">
 <?= wd_fmt() ?><input data-role="none" type="hidden" name="activetab" value="tab-quellen"><input data-role="none" type="hidden" name="quellen_save" value="1">
 <h2><?= wd_e(wd_t('TEXT.H_Q_PROG')) ?></h2>
@@ -441,14 +494,40 @@ if ($wf_frame) { LBWeb::lbheader('Weatherdata', 'https://wiki.loxberry.de/plugin
 <h2><?= wd_e(wd_t('TEXT.H_Q_WARN')) ?></h2>
 <?= wf_feld('dwd_ein') ?><?= wf_feld('bs_ein') ?><?= wf_feld('radar_ein') ?>
 <h2><?= wd_e(wd_t('TEXT.H_Q_STATION')) ?></h2>
+<div class="sm-hilfe"><?= wd_e(wd_t('TEXT.STATION_HILFE')) ?></div>
 <?= wf_feld('station_ein') ?><?= wf_feld('station_art') ?><?= wf_feld('station_ordner') ?><?= wf_feld('station_host1') ?><?= wf_feld('station_host2') ?><?= wf_feld('station_gleich_min') ?><?= wf_feld('station_sprung_k') ?>
 <div class="sm-hilfe"><?= wd_e(wd_t('TEXT.EMPFANG_HILFE')) ?></div>
 <div class="sm-mono">http://<?= $wf_host ?>/plugins/<?= wd_e($wf_p['plugin']) ?>/wd_empfang.php?token=<?= wd_e($wf_cfg['aktionstoken']) ?></div>
 <h2><?= wd_e(wd_t('TEXT.H_Q_UMWELT')) ?></h2>
 <?= wf_feld('aq_ein') ?><?= wf_feld('pollen_ein') ?><?= wf_feld('pollen_region') ?>
+<button data-role="none" class="sm-btn sm-b-aktion" type="submit"><?= wd_e(wd_t('TEXT.SPEICHERN')) ?></button>
+</form>
 <h2><?= wd_e(wd_t('TEXT.H_Q_AUS')) ?></h2>
 <div class="sm-warnung"><?= wd_e(wd_t('TEXT.AUS_HILFE')) ?></div>
-<?= wf_feld('nina_ein') ?><?= wf_feld('nina_ars') ?><?= wf_feld('ma_ein') ?><?= wf_feld('ma_land') ?><?= wf_feld('ma_emma') ?>
+<h3 class="sm-h3" id="wd-ars-suche"><?= wd_e(wd_t('TEXT.H_ARS_SUCHE')) ?></h3>
+<div class="sm-hilfe"><?= wd_e(wd_t('TEXT.ARS_HILFE')) ?></div>
+<form action="index.php" method="post"><?= wd_fmt() ?><input data-role="none" type="hidden" name="activetab" value="tab-quellen"><input data-role="none" type="hidden" name="nina_suchen" value="1">
+<div class="sm-feld"><label for="nina_such"><?= wd_e(wd_t('TEXT.ARS_FELD')) ?></label><input data-role="none" type="text" id="nina_such" name="nina_such" maxlength="60" value="<?= wd_e(isset($wf_hilfe['such']) ? $wf_hilfe['such'] : '') ?>"></div>
+<button data-role="none" class="sm-btn sm-b-lesen" type="submit"><?= wd_e(wd_t('TEXT.K_ARS_SUCHEN')) ?></button></form>
+<?php if (!empty($wf_hilfe['ars'])) { ?><form action="index.php" method="post"><?= wd_fmt() ?><input data-role="none" type="hidden" name="activetab" value="tab-quellen"><input data-role="none" type="hidden" name="nina_setzen" value="1">
+<div class="sm-feld"><label for="nina_wert"><?= wd_e(wd_t('TEXT.TREFFER')) ?></label><select data-role="none" id="nina_wert" name="nina_wert"><?php foreach ((array) $wf_hilfe['ars'] as $wf_z) { ?><option value="<?= wd_e($wf_z[0]) ?>"><?= wd_e($wf_z[1] . ' (' . $wf_z[0] . ')') ?></option><?php } ?></select></div>
+<button data-role="none" class="sm-btn sm-b-aktion" type="submit"><?= wd_e(wd_t('TEXT.K_EINTRAGEN')) ?></button></form><?php } ?>
+<h3 class="sm-h3" id="wd-ma-suche"><?= wd_e(wd_t('TEXT.H_MA_SUCHE')) ?></h3>
+<div class="sm-warnung"><?= wd_e(wd_t('TEXT.MA_NUR_AUSSEN')) ?></div>
+<div class="sm-hilfe"><?= wd_e(wd_t('TEXT.MA_HILFE')) ?></div>
+<form action="index.php" method="post"><?= wd_fmt() ?><input data-role="none" type="hidden" name="activetab" value="tab-quellen"><input data-role="none" type="hidden" name="ma_suchen" value="1">
+<div class="sm-feld"><label for="ma_such_land"><?= wd_e(wd_t('TEXT.MA_F_LAND')) ?></label><?= wf_auswahl('ma_such_land', 'ma_land', isset($wf_hilfe['ma_land']) ? $wf_hilfe['ma_land'] : $wf_cfg['ma_land']) ?></div>
+<button data-role="none" class="sm-btn sm-b-lesen" type="submit"><?= wd_e(wd_t('TEXT.K_MA_SUCHEN')) ?></button></form>
+<?php if (!empty($wf_hilfe['ma'])) { ?><form action="index.php" method="post"><?= wd_fmt() ?><input data-role="none" type="hidden" name="activetab" value="tab-quellen"><input data-role="none" type="hidden" name="ma_setzen" value="1"><input data-role="none" type="hidden" name="ma_wert_land" value="<?= wd_e($wf_hilfe['ma_land']) ?>">
+<div class="sm-feld"><label for="ma_wert"><?= wd_e(wd_t('TEXT.TREFFER')) ?></label><select data-role="none" id="ma_wert" name="ma_wert"><?php foreach ((array) $wf_hilfe['ma'] as $wf_a => $wf_b) { ?><option value="<?= wd_e($wf_a) ?>"><?= wd_e($wf_b . ' (' . $wf_a . ')') ?></option><?php } ?></select></div>
+<button data-role="none" class="sm-btn sm-b-aktion" type="submit"><?= wd_e(wd_t('TEXT.K_EINTRAGEN')) ?></button></form><?php } ?>
+<form action="index.php" method="post">
+<?= wd_fmt() ?><input data-role="none" type="hidden" name="activetab" value="tab-quellen"><input data-role="none" type="hidden" name="zusatz_save" value="1">
+<h3 class="sm-h3"><?= wd_e(wd_t('TEXT.H_NINA')) ?></h3>
+<?= wf_feld('nina_ein') ?><?= wf_feld('nina_ars') ?>
+<h3 class="sm-h3"><?= wd_e(wd_t('TEXT.H_MA')) ?></h3>
+<?= wf_feld('ma_ein') ?><?= wf_feld('ma_land') ?><?= wf_feld('ma_emma') ?>
+<h3 class="sm-h3"><?= wd_e(wd_t('TEXT.H_SCHLUESSEL')) ?></h3>
 <?= wf_feld('ow_ein') ?><?= wf_feld('ow_key') ?><?= wf_feld('wa_ein') ?><?= wf_feld('wa_key') ?><?= wf_feld('vc_ein') ?><?= wf_feld('vc_key') ?><?= wf_feld('tm_ein') ?><?= wf_feld('tm_key') ?><?= wf_feld('mb_ein') ?><?= wf_feld('mb_key') ?>
 <button data-role="none" class="sm-btn sm-b-aktion" type="submit"><?= wd_e(wd_t('TEXT.SPEICHERN')) ?></button>
 </form>
@@ -460,13 +539,14 @@ if ($wf_frame) { LBWeb::lbheader('Weatherdata', 'https://wiki.loxberry.de/plugin
 <li><?= wd_e(wd_t('NENNUNG.MET')) ?> <a href="https://www.met.no/" target="_blank" rel="noopener">met.no</a></li>
 <li><?= wd_e(wd_t('NENNUNG.CAMS')) ?></li>
 <li><?= wd_e(wd_t('NENNUNG.WTTR')) ?> <a href="https://wttr.in/" target="_blank" rel="noopener">wttr.in</a></li>
+<li><?= wd_e(wd_t('NENNUNG.MA')) ?> <a href="https://www.meteoalarm.org/" target="_blank" rel="noopener">www.meteoalarm.org</a></li>
 </ul>
 <div class="sm-hilfe"><?= wd_e(wd_t('NENNUNG.WO')) ?></div>
 <h2><?= wd_e(wd_t('TEXT.H_BILANZ')) ?></h2>
 <div class="sm-hilfe"><?= wd_e(wd_t('TEXT.BILANZ_HILFE')) ?></div>
 <?php $wf_bi = wd_bilanz_lage(); if (!$wf_bi) { ?><div class="sm-alert sm-info"><?= wd_e(wd_t('TEXT.BILANZ_LEER')) ?></div><?php } else { ?>
 <div class="sm-breit"><table class="sm-tbl"><tr><th><?= wd_e(wd_t('TEXT.T_QUELLE')) ?></th><th>0-6 h</th><th>6-24 h</th><th>24-72 h</th></tr>
-<?php foreach ($wf_bi as $wf_q => $wf_b) { ?><tr><td><?= wd_e($wf_q) ?></td><?php foreach (array('f0', 'f6', 'f24') as $wf_f) { ?><td><?= isset($wf_b[$wf_f]) ? wd_e(sprintf(wd_t('TEXT.BILANZ_Z'), round($wf_b[$wf_f][1], 1), (int) $wf_b[$wf_f][0], round(wd_gewicht($wf_bi, $wf_q, $wf_f), 2))) : '&ndash;' ?></td><?php } ?></tr><?php } ?>
+<?php foreach ($wf_bi as $wf_q => $wf_b) { ?><tr><td><?= wd_e(wd_t('QUELLE.N_' . $wf_q)) ?></td><?php foreach (array('f0', 'f6', 'f24') as $wf_f) { ?><td><?= isset($wf_b[$wf_f]) ? wd_e(sprintf(wd_t('TEXT.BILANZ_Z'), round($wf_b[$wf_f][1], 1), (int) $wf_b[$wf_f][0], round(wd_gewicht($wf_bi, $wf_q, $wf_f), 2))) : '&ndash;' ?></td><?php } ?></tr><?php } ?>
 </table></div><?php } ?>
 </div>
 
