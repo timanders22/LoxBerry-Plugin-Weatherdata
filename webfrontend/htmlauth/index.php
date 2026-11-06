@@ -448,7 +448,13 @@ if ($wf_frame) { LBWeb::lbheader('Weatherdata', 'https://wiki.loxberry.de/plugin
 
 .sm-tbl tr.sm-abweichung td { background: #fdf4ec; }
 #wd-werte-jetzt { table-layout: fixed; width: 100%; min-width: 600px; }
-#wd-werte-jetzt td.sm-zahl, #wd-werte-jetzt th.sm-zahl { text-align: right; white-space: nowrap; }
+#wd-werte-jetzt td.sm-zahl, #wd-werte-jetzt th.sm-zahl { text-align: right; }
+/* 0.9.13: nowrap nur an den Zahlen, nicht an der Ueberschrift - sonst schnitt overflow:hidden
+   "Wetterdienste: Mischung aus 9 Vorhersagen" auf "Wetterdienste: Mi" ab (th.sm-zahl schlug die Regel fuer th). */
+#wd-werte-jetzt td.sm-zahl { white-space: nowrap; }
+/* 0.9.13: der Erklaertext unter der Jetzt-Tabelle laeuft so breit wie die Tabelle und die Fussnote darueber;
+   .sm-hilfe (Hausstandard, 640 px fuer kurze Feldhilfen) bleibt unveraendert. */
+#wd-werte-vergleich { max-width: none; }
 #wd-werte-jetzt td.sm-her { overflow-wrap: anywhere; }
 #wd-werte-jetzt td, #wd-werte-jetzt th { overflow: hidden; text-overflow: ellipsis; vertical-align: top; }
 #wd-werte-jetzt td.sm-her, #wd-werte-jetzt td:first-child, #wd-werte-jetzt th { white-space: normal; text-overflow: clip; }

@@ -4,6 +4,10 @@
  * Pruefung-Durchgang-2026-09-29/vb_wd_skripte/wd098_themenvertrag.md, nur als Vorschlag). Abnehmer: Sprachsteuerung lokal
  * ab 0.12.13 (Wetterfragen).
  *
+ * 0.9.13 (Hausherr 06.11.2026): dazu haus/wetter/datum_text - derselbe Tag wie haus/wetter/datum als Text TT.MM.JJJJ zum
+ * Anzeigen in Loxone; retained wie datum, im Satz direkt hinter datum, ohne Aussage "-" genau dann, wenn datum keine hat.
+ * haus/wetter/datum behaelt seine Bedeutung (JJJJMMTT). Damit 29 Themen, 27 davon retained.
+ *
  * Ab Werk aus (Haken haus_wetter_ein im Reiter MQTT, Entscheidung Hausherr 04.11.2026), wirkt nur mit mqtt_ein. Gesendet per
  * kurzer TCP-Sitzung direkt an den Broker, nicht ueber den UDP-Eingang des Gateways: ein verlorenes Datagramm liesse einen
  * retained Wert stehen, und das Abraeumen braucht das Ruecklesen ohnehin. Bauart wie Ferien und Feiertage 1.2.28
@@ -18,7 +22,7 @@
  *  Senden, Abraeumen, Reiter MQTT, Reiter Test und Selbstpruefung. */
 function wd_haus_themen()
 {
-    $t = array('haus/wetter/datum' => true, 'haus/wetter/zeit' => true, 'haus/wetter/sprache' => true);
+    $t = array('haus/wetter/datum' => true, 'haus/wetter/datum_text' => true, 'haus/wetter/zeit' => true, 'haus/wetter/sprache' => true);
     foreach (array('grad', 'gefuehlt_grad', 'feuchte_prozent', 'wind_kmh', 'boeen_kmh', 'regen', 'regen_mm_h') as $k) { $t['haus/wetter/jetzt/' . $k] = true; }
     foreach (array('heute', 'morgen') as $tag) {
         foreach (array('tief_grad', 'hoch_grad', 'regen_mm', 'regen_prozent', 'code', 'wort') as $k) { $t['haus/wetter/' . $tag . '/' . $k] = true; }
@@ -30,7 +34,7 @@ function wd_haus_themen()
     return $t;
 }
 
-/** Die 26 retained Themen - abgeraeumt werden nur diese. */
+/** Die 27 retained Themen (bis 0.9.12: 26) - abgeraeumt werden nur diese. */
 function wd_haus_retained()
 {
     return array_keys(array_filter(wd_haus_themen()));
@@ -39,6 +43,7 @@ function wd_haus_retained()
 /** Ohne Aussage: Temperaturen -999, uebrige Zahlen -1, Texte "-" (wie haus/klima, Entscheidung Nr. 5). */
 function wd_haus_leerwert($thema)
 {
+    if ($thema === 'haus/wetter/datum_text') { return '-'; }
     if (preg_match('#/(sprache|wort|text|art)$#', $thema)) { return '-'; }
     return preg_match('#_grad$#', $thema) ? '-999' : '-1';
 }
@@ -49,6 +54,15 @@ function wd_haus_zahl($v)
     if (is_int($v) || is_float($v)) { return is_finite((float) $v) ? (float) $v : null; }
     if (is_string($v) && is_numeric(trim($v))) { return (float) trim($v); }
     return null;
+}
+
+/** 0.9.13: haus/wetter/datum_text aus dem Wert von haus/wetter/datum - JJJJMMTT wird TT.MM.JJJJ (Tag und Monat
+ *  zweistellig, Jahr vierstellig). Hat datum keine Aussage ("-1", "-" oder kein gueltiger Tag), ist es "-". */
+function wd_haus_datum_text($datum)
+{
+    $d = (string) $datum;
+    if (!preg_match('/^(\d{4})(\d{2})(\d{2})$/', $d, $m) || !checkdate((int) $m[2], (int) $m[3], (int) $m[1])) { return '-'; }
+    return $m[3] . '.' . $m[2] . '.' . $m[1];
 }
 
 /** Eine Nachkommastelle, ohne "-0.0". */
@@ -82,7 +96,7 @@ function wd_haus_text($s, $n = 80)
 }
 
 /**
- * Die Werte aller 28 Themen aus dem Zustand des Minutenlaufs (wd_zustand(): jetzt, gefuehlt, seite.tage, warn_ok, lagen,
+ * Die Werte aller 29 Themen aus dem Zustand des Minutenlaufs (wd_zustand(): jetzt, gefuehlt, seite.tage, warn_ok, lagen,
  * pollen). Thema => Zeichenkette, nie leer. $jetzt: Zeit der Rechnung (Vorgabe st.ts).
  */
 function wd_haus_werte(array $st, array $c, $zaehler, $jetzt = null)
@@ -92,6 +106,7 @@ function wd_haus_werte(array $st, array $c, $zaehler, $jetzt = null)
     $w = array();
     foreach (wd_haus_themen() as $t => $r) { $w[$t] = wd_haus_leerwert($t); }
     $w['haus/wetter/datum'] = date('Ymd', $jetzt);
+    $w['haus/wetter/datum_text'] = wd_haus_datum_text($w['haus/wetter/datum']);
     $w['haus/wetter/zeit'] = (string) $jetzt;
     $w['haus/wetter/sprache'] = $sp;
     $j = isset($st['jetzt']) && is_array($st['jetzt']) ? $st['jetzt'] : array();
@@ -365,7 +380,7 @@ function wd_haus_frueher_setzen($ja)
 /**
  * Im Minutenlauf (wd_lauf_sperrt() nach dem MQTT-Versand). Nur mit haus_wetter_ein = 1 UND mqtt_ein = 1 UND einer erkannten
  * LoxBerry-Wurzel; sonst verfaellt der Merker, und war diese Installation Anbieter (_haus_frueher), raeumt der Lauf
- * hoechstens alle 10 Minuten die 26 retained Themen ab. Der Merker wird NUR nach einer Sitzung mit lage 'ok' fortgeschrieben.
+ * hoechstens alle 10 Minuten die 27 retained Themen ab. Der Merker wird NUR nach einer Sitzung mit lage 'ok' fortgeschrieben.
  */
 function wd_haus_lauf(array $st, array $c, $zaehler)
 {
@@ -405,7 +420,7 @@ function wd_haus_lauf(array $st, array $c, $zaehler)
 }
 
 /**
- * Die 26 retained Themen abraeumen: erst zuruecklesen; ist nichts belegt -> 'nichts'. Sonst PUBLISH mit Retain-Bit und LEERER
+ * Die 27 retained Themen abraeumen: erst zuruecklesen; ist nichts belegt -> 'nichts'. Sonst PUBLISH mit Retain-Bit und LEERER
  * Nutzlast fuer die belegten Themen und in derselben Sitzung zuruecklesen, bis zu drei Runden. Nur die eigenen Namen aus
  * wd_haus_themen(), nie haus/wetter/#, nie fremde Fuehler. Rueckgabe array('lage' => geleert | nichts | rest | kein_broker,
  * 'offen' => belegte Themen, 'grund' => Lage der gescheiterten Sitzung).
@@ -439,7 +454,7 @@ function wd_haus_leeren($runden = 3, $th = null)
 /**
  * Folgen einer Aenderung von haus_wetter_ein/mqtt_ein (Reiter MQTT, Zurueckspielen einer Sicherung): wird die Installation
  * Anbieter, verfaellt der Merker (der naechste Minutenlauf schickt den vollen Satz); hoert sie auf und war sie es (Haken und
- * MQTT an) oder traegt sie _haus_frueher, raeumt sie die 26 Themen mit Ruecklesen ab.
+ * MQTT an) oder traegt sie _haus_frueher, raeumt sie die 27 Themen mit Ruecklesen ab.
  * Rueckgabe array(Meldung oder '', 'ok'|'warn', neuer Merker _haus_frueher 0/1 oder null = unveraendert).
  */
 function wd_haus_folgen(array $alt, array $neu)
@@ -520,12 +535,21 @@ function wd_haus_vertrag_pruefen()
     $wv = wd_haus_werte($voll, array('ansage_sprache' => 'de'), 1234, $j);
     $wl = wd_haus_werte($leer, array('ansage_sprache' => 'de'), 1234, $j);
     $soll = array('haus/wetter/jetzt/grad' => '7.3', 'haus/wetter/jetzt/regen' => '1', 'haus/wetter/heute/regen_mm' => '2.4', 'haus/wetter/heute/code' => '80', 'haus/wetter/morgen/tief_grad' => '0.0',
-                  'haus/wetter/warnung/stufe' => '2', 'haus/wetter/pollen/stufe' => '2.5', 'haus/wetter/pollen/art' => 'birke', 'haus/wetter/zaehler/weatherdata' => '234', 'haus/wetter/datum' => '20300601');
+                  'haus/wetter/warnung/stufe' => '2', 'haus/wetter/pollen/stufe' => '2.5', 'haus/wetter/pollen/art' => 'birke', 'haus/wetter/zaehler/weatherdata' => '234', 'haus/wetter/datum' => '20300601',
+                  'haus/wetter/datum_text' => '01.06.2030');
     foreach ($soll as $t => $v) { if (($wv[$t] ?? null) !== $v) { $fehl[] = $t . '=' . ($wv[$t] ?? 'fehlt'); } }
+    // 0.9.13: datum_text direkt hinter datum, retained wie datum; ohne Aussage genau dann, wenn datum keine hat.
+    $tk = array_keys($th);
+    $ip = array_search('haus/wetter/datum', $tk, true);
+    if ($ip === false || ($tk[$ip + 1] ?? '') !== 'haus/wetter/datum_text' || $th['haus/wetter/datum_text'] !== $th['haus/wetter/datum']) { $fehl[] = 'datum_text: Stelle/retain'; }
+    foreach (array('-1' => '-', '-' => '-', '' => '-', '20301231' => '31.12.2030', '20300231' => '-', '2030061' => '-') as $d => $v) {
+        if (wd_haus_datum_text((string) $d) !== $v) { $fehl[] = 'datum_text(' . $d . ')=' . wd_haus_datum_text((string) $d); }
+    }
+    if (wd_haus_leerwert('haus/wetter/datum_text') !== '-') { $fehl[] = 'datum_text: leerwert'; }
     foreach (array('haus/wetter/jetzt/grad' => '-999', 'haus/wetter/heute/regen_mm' => '-1', 'haus/wetter/warnung/stufe' => '-1', 'haus/wetter/warnung/text' => '-', 'haus/wetter/pollen/art' => '-', 'haus/wetter/ok' => '0') as $t => $v) {
         if (($wl[$t] ?? null) !== $v) { $fehl[] = 'leer ' . $t . '=' . ($wl[$t] ?? 'fehlt'); }
     }
     $n = count(wd_haus_retained());
-    if ($n !== 26 || !empty($th['haus/wetter/ok']) || !empty($th['haus/wetter/zaehler/weatherdata'])) { $fehl[] = 'retain'; }
+    if ($n !== 27 ||!empty($th['haus/wetter/ok']) || !empty($th['haus/wetter/zaehler/weatherdata'])) { $fehl[] = 'retain'; }
     return array(!$fehl, $fehl ? implode(', ', array_slice($fehl, 0, 6)) : sprintf(wd_t('HAUS.VERTRAG_OK'), count($th), $n));
 }
