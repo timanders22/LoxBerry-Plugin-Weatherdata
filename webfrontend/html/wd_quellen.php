@@ -762,6 +762,8 @@ function wd_lauf_sperrt($zwingen)
     if ($voll) { @file_put_contents($sf, $sig . '|' . $jetzt); }
     // 0.9.8: Hausthemen haus/wetter fuer andere Plugins (ab Werk aus); ein Fehler dort haelt die Ansagen nicht auf.
     try { wd_haus_lauf($st, $c, $werte['status/zaehler']); } catch (Throwable $e) { wd_log_einmal('haus', 'Hausthemen haus/wetter: ' . get_class($e) . ': ' . $e->getMessage()); }
+    // 0.9.10: PV-Prognose haus/pv (ab Werk aus), ebenso abgeschirmt.
+    try { wd_pv_lauf($c, $werte['status/zaehler'], $jetzt); } catch (Throwable $e) { wd_log_einmal('pv', 'PV-Prognose haus/pv: ' . get_class($e) . ': ' . $e->getMessage()); }
     wd_ansagen($st, $c, $jetzt);
     return $st;
 }
@@ -911,5 +913,10 @@ function wd_selbsttest()
     $zeile(wd_t('PRUEF.HAUS_VERTRAG'), $hv_ok, $hv_t);
     list($hz_ok, $hz_t) = wd_haus_testzeile($c);
     $zeile(wd_t('PRUEF.HAUS'), $hz_ok, $hz_t);
+    // 0.9.10: PV-Prognose haus/pv - Rechnung offline, dann Abruf und Sitzung
+    list($pv_ok, $pv_t) = wd_pv_vertrag_pruefen();
+    $zeile(wd_t('PRUEF.PV_VERTRAG'), $pv_ok, $pv_t);
+    list($pz_ok, $pz_t) = wd_pv_testzeile($c);
+    $zeile(wd_t('PRUEF.PV'), $pz_ok, $pz_t);
     return $z;
 }

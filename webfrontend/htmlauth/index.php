@@ -91,6 +91,7 @@ if ($wf_post && isset($_POST['wd_zurueck'])) {
         $wf_e = wd_sicherung_lesen((string) @file_get_contents($_FILES['wd_sicherung']['tmp_name']), $wf_halt);
         // 0.9.8: der Merker "war Anbieter von haus/wetter" gehoert zur Installation, nicht zur Sicherung - er bleibt.
         if ($wf_e[0] !== null && !empty($wf_halt['_haus_frueher'])) { $wf_e[0]['_haus_frueher'] = 1; }
+        if ($wf_e[0] !== null && !empty($wf_halt['_pv_frueher'])) { $wf_e[0]['_pv_frueher'] = 1; }     // 0.9.10: ebenso fuer haus/pv
         if ($wf_e[0] === null) {
             $wf_err = wd_t('SICH.ABGELEHNT') . ' ' . implode(' ', $wf_e[1]);
         } elseif (wd_config_speichern($wf_e[0])) {
@@ -104,6 +105,9 @@ if ($wf_post && isset($_POST['wd_zurueck'])) {
                 list($wf_hm, $wf_ha, $wf_hf) = wd_haus_folgen($wf_halt, $wf_e[0]);
                 if ($wf_hf !== null) { wd_haus_frueher_setzen((bool) $wf_hf); }
                 if ($wf_hm !== '') { $wf_hinweise[] = $wf_hm; }
+                list($wf_pm2, $wf_pa2, $wf_pf2) = wd_pv_folgen($wf_halt, $wf_e[0]);
+                if ($wf_pf2 !== null) { wd_pv_frueher_setzen((bool) $wf_pf2); }
+                if ($wf_pm2 !== '') { $wf_hinweise[] = $wf_pm2; }
             } else {
                 $wf_err = wd_t('SICH.NICHT_ANGEKOMMEN');
             }
@@ -201,7 +205,7 @@ if ($wf_post && isset($_POST['token_neu'])) {
     if (wd_config_speichern($wf_c)) { wd_zweitschrift($wf_c); $wf_note = wd_t('MELD.TOKEN_NEU'); } else { $wf_err = wd_t('MELD.SPEICHERN_FEHL'); }
 }
 // ---------- Speichern, je Formular ein Teil der Feldtabelle ----------
-foreach (array('save', 'quellen_save', 'zusatz_save', 'warn_save', 'mqtt_save', 'emu_save', 'lox_save') as $wf_form) {
+foreach (array('save', 'quellen_save', 'zusatz_save', 'pv_save', 'warn_save', 'mqtt_save', 'emu_save', 'lox_save') as $wf_form) {
     if (!$wf_post || !isset($_POST[$wf_form])) { continue; }
     $wf_alt = wd_config(); $wf_neu = $wf_alt; $wf_bean = array(); $wf_werte = array(); $wf_ziele_post = null;
     // 0.9.9: beide Zahlen aus der Karte zusammen ins Feld Breitengrad kopiert ("48.13726, 11.57549") - hier aufteilen. Beide mit
@@ -260,6 +264,17 @@ foreach (array('save', 'quellen_save', 'zusatz_save', 'warn_save', 'mqtt_save', 
             list($wf_hm, $wf_ha, $wf_hf) = wd_haus_folgen($wf_alt, $wf_neu);
             if ($wf_hf !== null) { wd_haus_frueher_setzen((bool) $wf_hf); }
             if ($wf_hm !== '') { $wf_note = $wf_hm; $wf_note_art = $wf_ha; }
+        }
+        if ($wf_form === 'mqtt_save' || $wf_form === 'pv_save') {
+            // 0.9.10: PV-Prognose haus/pv - einschalten meldet, ausschalten (auch MQTT aus) raeumt im Broker ab.
+            list($wf_pm2, $wf_pa2, $wf_pf2) = wd_pv_folgen($wf_alt, $wf_neu);
+            if ($wf_pf2 !== null) { wd_pv_frueher_setzen((bool) $wf_pf2); }
+            if ($wf_pm2 !== '') { if ($wf_note === '') { $wf_note = $wf_pm2; $wf_note_art = $wf_pa2; } else { $wf_hinweise[] = $wf_pm2; } }
+            if ($wf_form === 'pv_save' && !empty($wf_neu['haus_pv_ein'])) {
+                if (!wd_pv_flaechen($wf_neu)) { $wf_hinweise[] = wd_t('PV.H_KEINE_FLAECHE'); }
+                if (wd_position($wf_neu) === null) { $wf_hinweise[] = wd_t('PV.T_STANDORT'); }
+                if (empty($wf_neu['om_ein'])) { $wf_hinweise[] = wd_t('PV.T_OM_AUS'); }
+            }
         }
     } else {
         $wf_err = wd_t('MELD.SPEICHERN_FEHL');
@@ -581,6 +596,34 @@ if ($wf_frame) { LBWeb::lbheader('Weatherdata', 'https://wiki.loxberry.de/plugin
 <?= wf_feld('aq_ein') ?><?= wf_feld('pollen_ein') ?><?= wf_feld('pollen_region') ?>
 <button data-role="none" class="sm-btn sm-b-aktion" type="submit"><?= wd_e(wd_t('TEXT.SPEICHERN')) ?></button>
 </form>
+<?php /* 0.9.10: PV-Prognose ohne Konto (haus/pv), eigenes Formular pv_save; ab Werk aus. */ ?>
+<h2 id="wd-pv"><?= wd_e(wd_t('PV.H')) ?></h2>
+<div class="sm-hinweis"><?= wd_e(wd_t('PV.TEXT')) ?></div>
+<?php list($wf_po, $wf_pt) = wd_pv_testzeile($wf_cfg); ?><div class="sm-alert <?= $wf_po === false ? 'sm-warn' : ($wf_po ? 'sm-ok' : 'sm-info') ?>" id="wd-pv-lage"><?= wd_e($wf_pt) ?></div>
+<?php $wf_pe = wd_pv_ergebnis($wf_cfg); if (!empty($wf_pe['ok'])) { ?>
+<div class="sm-breit sm-passt"><table class="sm-tbl sm-fest" id="wd-pv-tage"><colgroup><col style="width:28%"><col style="width:24%"><col style="width:24%"><col style="width:24%"></colgroup><tr><th><?= wd_e(wd_t('PV.T_TAG')) ?></th><th><?= wd_e(wd_t('PV.T_KWH')) ?></th><th><?= wd_e(wd_t('PV.T_SPITZE')) ?></th><th><?= wd_e(wd_t('PV.T_UM')) ?></th></tr>
+<?php foreach (array('heute' => 'PV.HEUTE', 'morgen' => 'PV.MORGEN') as $wf_ptg => $wf_ptx) { $wf_pd = $wf_pe[$wf_ptg]; ?><tr><td><?= wd_e(wd_t($wf_ptx)) ?></td><td><?= is_array($wf_pd) ? wd_e(wd_pv_zahl($wf_pd['kwh'])) . '&nbsp;kWh' : '&ndash;' ?></td><td><?= is_array($wf_pd) ? wd_e(wd_pv_zahl($wf_pd['spitze_w'] / 1000, 2)) . '&nbsp;kW' : '&ndash;' ?></td><td><?= (is_array($wf_pd) && $wf_pd['spitze_zeit'] !== null) ? wd_e(sprintf(wd_t('PV.UHR'), $wf_pd['spitze_zeit'])) : '&ndash;' ?></td></tr><?php } ?>
+</table></div>
+<div class="sm-small"><?= wd_e(sprintf(wd_t('PV.FUSS'), $wf_pe['rest_kwh'] === null ? '-' : wd_pv_zahl($wf_pe['rest_kwh']), $wf_pe['jetzt_w'] === null ? '-' : wd_pv_zahl($wf_pe['jetzt_w'] / 1000, 2))) ?></div>
+<?php } ?>
+<div class="sm-legende"><span><i class="sm-punkt sm-b-aktion"></i> <?= wd_e(wd_t('LEGENDE.AKTION')) ?></span></div>
+<form action="index.php" method="post" id="wd-pv-form">
+<?= wd_fmt() ?><input data-role="none" type="hidden" name="activetab" value="tab-quellen"><input data-role="none" type="hidden" name="pv_save" value="1">
+<?= wf_feld('haus_pv_ein') ?>
+<div class="sm-hilfe"><?= wd_e(wd_t('PV.FLAECHEN_HILFE')) ?></div>
+<?php for ($wf_pi = 1; $wf_pi <= 4; $wf_pi++) { ?><div class="sm-step" id="wd-pv-flaeche<?= $wf_pi ?>">
+<h3 class="sm-h3"><?= wd_e(sprintf(wd_t('PV.H_FLAECHE'), $wf_pi)) ?></h3>
+<?= wf_feld('pv' . $wf_pi . '_name') ?><?= wf_feld('pv' . $wf_pi . '_kwp') ?><?= wf_feld('pv' . $wf_pi . '_neigung') ?><?= wf_feld('pv' . $wf_pi . '_az') ?>
+</div>
+<?php } ?>
+<?= wf_feld('pv_faktor') ?><?= wf_feld('pv_wr_max_w') ?>
+<button data-role="none" class="sm-btn sm-b-aktion" type="submit"><?= wd_e(wd_t('TEXT.SPEICHERN')) ?></button>
+</form>
+<h3 class="sm-h3"><?= wd_e(wd_t('PV.H_THEMEN')) ?></h3>
+<div class="sm-breit sm-passt"><table class="sm-tbl sm-fest" id="wd-pv-themen"><colgroup><col style="width:38%"><col style="width:14%"><col style="width:48%"></colgroup><tr><th><?= wd_e(wd_t('HAUS.T_THEMA')) ?></th><th><?= wd_e(wd_t('HAUS.T_BLEIBT')) ?></th><th><?= wd_e(wd_t('HAUS.T_BEDEUTUNG')) ?></th></tr>
+<?php foreach (wd_pv_themen() as $wf_pth => $wf_pr) { ?><tr><td><span class="sm-mono"><?= wd_e($wf_pth) ?></span></td><td><?= wd_e(wd_t($wf_pr ? 'TEXT.JA' : 'TEXT.NEIN')) ?></td><td class="sm-small"><?= wd_e(wd_t('PV.B_' . strtoupper(str_replace(array('haus/pv/', '/'), array('', '_'), $wf_pth)))) ?></td></tr><?php } ?>
+</table></div>
+<div class="sm-small"><?= wd_e(wd_t('PV.LEER')) ?></div>
 <h2 id="wd-zusatz"><?= wd_e(wd_t('TEXT.H_Q_AUS')) ?></h2>
 <?php /* 0.9.8: EIN Formular, je Dienst ein Kasten. Die Such- und Uebernehmen-Knoepfe senden dasselbe Formular mit eigenem name;
    ihr Handler oben speichert es nie (zusatz_save faellt weg). Das Formulartoken steht innerhalb des Formulars. */ ?>
@@ -700,6 +743,7 @@ echo ansage_regeln_html(wd_ansage_regeln($wf_cfg), array(), array(), $wf_hooks +
 <?php foreach ($wf_hg as $wf_hk2 => $wf_hz) { $wf_hf2 = array_values(array_filter($wf_hz['t'])); ?><tr><td><span class="sm-mono">haus/wetter/<?= wd_e($wf_hk2) ?><?= $wf_hf2 ? '/' . wd_e(implode(' | ', $wf_hf2)) : '' ?></span></td><td><?= wd_e(wd_t($wf_hz['r'] ? 'TEXT.JA' : 'TEXT.NEIN')) ?></td><td class="sm-small"><?= wd_e(wd_t('HAUS.B_' . strtoupper($wf_hk2))) ?></td></tr><?php } ?>
 </table></div>
 <div class="sm-small"><?= wd_e(wd_t('HAUS.LEER')) ?></div>
+<div class="sm-hilfe" id="wd-pv-verweis"><?= wd_e(wd_t('PV.MQTT_VERWEIS')) ?></div>
 <h2><?= wd_e(wd_t('TEXT.H_GATEWAY')) ?></h2>
 <div class="sm-small sm-mono"><?= wd_e(sprintf(wd_t('TEXT.GATEWAY'), (int) $wf_gw)) ?></div>
 <?php list($wf_vo, $wf_vt) = wd_v2_lage($wf_cfg); ?><div class="sm-alert <?= $wf_vo === false ? 'sm-warn' : 'sm-info' ?>"><?= wd_e($wf_vt) ?></div>

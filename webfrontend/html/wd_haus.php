@@ -410,9 +410,9 @@ function wd_haus_lauf(array $st, array $c, $zaehler)
  * wd_haus_themen(), nie haus/wetter/#, nie fremde Fuehler. Rueckgabe array('lage' => geleert | nichts | rest | kein_broker,
  * 'offen' => belegte Themen, 'grund' => Lage der gescheiterten Sitzung).
  */
-function wd_haus_leeren($runden = 3)
+function wd_haus_leeren($runden = 3, $th = null)
 {
-    $th = wd_haus_retained();
+    $th = is_array($th) ? array_values($th) : wd_haus_retained();     // 0.9.10: auch fuer haus/pv (wd_pv_leeren), nie mit # oder +
     $belegt = function ($w) {
         $o = array();
         foreach ($w as $t => $v) { if ((string) $v !== '') { $o[] = $t; } }

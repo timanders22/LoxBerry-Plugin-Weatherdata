@@ -11,6 +11,7 @@ Liefert Wetterwerte, Prognosen, amtliche Warnungen, Handlungssignale und fertige
 - **Umwelt:** DWD-Pollenflug je Teilregion (Hasel, Erle, Esche, Birke, Gräser, Roggen, Beifuß, Ambrosia), Luftindex, Feinstaub, Ozon und NO2 aus CAMS über Open-Meteo (Modellwert, keine Messung), UV. Signal `lueftung_sperren` nur für angehakte Pollenarten.
 - **Radar** über Bright Sky: `radar/regen_in_min`, verdichtet auf den Standort.
 - **Fassade:** höchste Strahlung auf senkrechter Fläche je Ausrichtung (ab Werk aus).
+- **PV-Prognose ohne Konto** (ab 0.9.10, ab Werk aus): erwarteter Ertrag der eigenen Solaranlage heute und morgen aus der Strahlungsprognose von Open-Meteo, für bis zu vier Dachflächen; für andere Plugins unter `haus/pv/…`.
 - **Station auf drei Wegen:** über die Ecowitt-Weiche, direkt (`get_livedata_info`, zwei Adressen) oder per Empfang (Ecowitt- und Wunderground-Protokoll an `wd_empfang.php` mit Token).
 - **Wetterseite für die Loxone-App** (Reiter Wetterseite): aktuelle Werte, die nächsten 48 Stunden, bis zu 7 Tage, Warnungen, Pollen, Luft und Regenradar, fünf Farbdesigns, vier Symbolsets, hell, dunkel oder wie das Gerät, Deutsch und Englisch. Dazu der Kachelwert `wd.php?kachel=1` als JSON.
 - **Ab Werk aus, abschaltbar und im Reiter Quellen benannt:** NINA (laut Hinweis in den Meldungen nur inhaltlich unverändert und nicht gewerblich; eine Lizenz nennt die Schnittstelle nicht; nur Nicht-Wetter-Meldungen, Wortlaut unverändert), Meteoalarm (Lizenz wie CC BY 4.0 mit Zusatzregeln, die das Plugin erfüllt; nur für Nutzer außerhalb Deutschlands), OpenWeather, WeatherAPI, Visual Crossing, Tomorrow.io, Meteoblue (je eigener Schlüssel; die Adapter sind nach der Dienstdoku gebaut und ohne Schlüssel nie gegen eine echte Antwort gefahren). Wer einschaltet, klärt die Bedingungen selbst.
@@ -54,6 +55,8 @@ Beides tragen Sie selbst ein. Die Warnzelle lässt sich aus dem Standort vorschl
 Virtuelle Eingänge heißen wie der Gateway-Name; Haken je Thema nach der Hakenliste im Reiter MQTT (Pflicht und wahlweise getrennt). Retained ist nur `fassung`. Keine Aussage ist ein Strich `-`, nie ein leerer Wert und nie der alte Wert; die Logik hängt an den Zahlenthemen `.../ok`. Wie ein Virtueller Eingang den Strich behandelt, bitte an der eigenen Anlage messen.
 
 Für andere Plugins (ab 0.9.8, ab Werk aus): eine kleine Wetterübersicht unter `haus/wetter/…`, siehe „Neu in 0.9.8“. Sie braucht in Loxone nichts.
+
+Ebenso (ab 0.9.10, ab Werk aus): die PV-Prognose unter `haus/pv/…`, siehe „Neu in 0.9.10“.
 
 ## Emulator des Loxone-Wetterdienstes
 
@@ -103,6 +106,18 @@ Dieses Plugin enthält keinen fremden Code. Es liest:
 - Die Ecowitt-Weiche ist ein eigenes Plugin und bleibt getrennt installiert.
 
 Die Unwetterzentrale ist wegen ihrer Bedingungen bewusst nicht eingebaut. **WetterOnline ist ebenfalls nicht eingebaut, anders als bei Weather4Lox:** Es gibt keine öffentlich dokumentierte Schnittstelle; Weather4Lox nutzt Adressen, die für die WetterOnline-App gedacht sind. Die AGB (Fassung vom 24.02.2025, Ziffer 2) untersagen die unberechtigte Vervielfältigung und Speicherung der Inhalte und verweisen auf eine Anfrage vorab. Das Antwortformat des Emulators ist am öffentlichen Quelltext von Weather4Lox (Apache-2.0, Michael Schlenstedt, Jan Wachsmuth) abgelesen; es ist keine Zeile daraus übernommen. „Loxone“ ist eine Marke ihres Inhabers. Lizenz dieses Plugins: MIT.
+
+## Neu in 0.9.10
+
+Am Gerät und an einem echten Broker nicht gemessen; gegen Attrappen (Open-Meteo-Antwort, Prüf-Broker) gefahren.
+
+- **PV-Prognose ohne Konto** (Reiter Quellen, Abschnitt „PV-Prognose“, **ab Werk aus**): Weatherdata schätzt, wie viel Strom Ihre Solaranlage heute und morgen erzeugt. Es braucht kein Konto und keinen Schlüssel – die Strahlung auf die schräge Modulfläche kommt von Open-Meteo.
+- **So geht es:** 1. Haken „PV-Prognose rechnen …“ setzen. 2. Je Dachfläche (bis zu vier, zum Beispiel Ost- und Westdach getrennt) die Leistung in kWp, die Neigung und die Ausrichtung eintragen. Die Ausrichtung misst man im Luftbild mit dem verlinkten Azimut-Werkzeug (polka-umwelt.de, „Orthogonales Messen“ an der Dachkante): 0 = Süden, −90 = Osten, 90 = Westen. 3. Speichern. Nach wenigen Minuten zeigt eine kleine Tabelle Ertrag und höchste Leistung für heute und morgen.
+- **Es ist eine Schätzung.** Vergleichen Sie sie über einige Wochen mit dem, was Ihre Anlage wirklich erzeugt, und stellen Sie dann den Gesamt-Wirkungsgrad nach (Vorgabe 0,85; zu hoch → kleiner, zu tief → größer). Die Erwärmung der Module rechnet das Plugin selbst ein; mehr als der Wechselrichter abgeben kann, wird abgeschnitten, wenn dessen Höchstleistung eingetragen ist.
+- **Nur ein Anbieter im Haus:** Wer schon PV Solcast NG oder ein anderes Prognose-Plugin nutzt, braucht das hier nicht unbedingt.
+- **Für andere Plugins** (nur wenn auch „Werte über MQTT senden“ an ist): `haus/pv/jetzt_w`, `naechste_stunde_w` (W), `heute_kwh`, `heute_rest_kwh`, `morgen_kwh` (kWh), `spitze_heute_w`/`spitze_heute_zeit`, `spitze_morgen_w`/`spitze_morgen_zeit`, `kwp`, `datum`, `stand` – diese 12 bleiben im Broker; `haus/pv/ok` und das Lebenszeichen `haus/pv/zaehler/weatherdata` nie. Ist der letzte Abruf älter als 3 Stunden, steht überall −1 (Uhrzeiten `-`) und ok ist 0 – nie ein alter Wert. Haken aus, MQTT aus oder Deinstallation: Die 12 Themen werden im Broker abgeräumt. Die Liste steht im Abschnitt PV-Prognose.
+- **Abrufe:** eine Anfrage je Dachfläche und Stunde (Flächen mit gleicher Neigung und Ausrichtung teilen sich eine), also höchstens 96 am Tag zusätzlich – weit unter der Grenze von Open-Meteo für die freie Nutzung (10.000 am Tag).
+- **Reiter Test:** neue Zeile „haus/pv (PV-Prognose)“ mit an/aus, Flächen, letztem Abruf und Werten.
 
 ## Neu in 0.9.9
 

@@ -505,6 +505,7 @@ function wd_mehr_holen($c, $jetzt, $zwingen)
 {
     wd_prog_holen($c, $jetzt, $zwingen);
     wd_fassade_holen($c, $jetzt, $zwingen);
+    wd_pv_holen($c, $jetzt, $zwingen);     // 0.9.10: PV-Prognose, je Flaeche eine Anfrage je Stunde
     $pos = wd_position($c);
     if (!empty($c['aq_ein']) && $pos !== null) {
         wd_einfach_holen('luft', 'https://air-quality-api.open-meteo.com/v1/air-quality?latitude=' . $pos[0] . '&longitude=' . $pos[1] . '&timezone=auto&current=european_aqi,pm10,pm2_5,ozone,nitrogen_dioxide', 'wd_luft_lesen', 'luft.json', 60, $jetzt, $zwingen);
@@ -724,7 +725,8 @@ function wd_feld_verweise()
 {
     return array(
         'lat' => array(array('https://mapatlas.eu/de/tools/coordinates', 'VERWEIS.KARTE')),     // 0.9.9: Karte fuer Laien (Adresse suchen, Dezimalgrad kopieren; Hausherr 06.11.)
-        'fassade_az' => array(array('https://azimut.polka-umwelt.de/', 'VERWEIS.AZIMUT')),     // 0.9.9: Ausrichtung im Luftbild messen (gleiche Zaehlweise: 0 Sued; Hausherr 06.11.)
+        'fassade_az' => array(array('https://azimut.polka-umwelt.de/', 'VERWEIS.AZIMUT')),
+        'pv1_az' => array(array('https://azimut.polka-umwelt.de/', 'VERWEIS.AZIMUT_PV')),     // 0.9.10: dieselbe Zaehlweise wie Open-Meteo (0 Sued, Ost negativ)     // 0.9.9: Ausrichtung im Luftbild messen (gleiche Zaehlweise: 0 Sued; Hausherr 06.11.)
         'om_apikey' => array(array('https://open-meteo.com/en/pricing', 'VERWEIS.OM')),
         'pollen_region' => array(array('https://opendata.dwd.de/climate_environment/health/alerts/s31fg.json', 'VERWEIS.POLLEN')),
         'nina_ars' => array(array('https://www.xrepository.de/details/urn:de:bund:destatis:bevoelkerungsstatistik:schluessel:rs', 'VERWEIS.ARS'), array('https://nina.api.bund.dev/', 'VERWEIS.NINA_API')),

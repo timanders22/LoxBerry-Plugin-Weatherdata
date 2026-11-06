@@ -18,6 +18,7 @@ require_once __DIR__ . '/wd_emu.php';
 require_once __DIR__ . '/wd_seite.php';
 require_once __DIR__ . '/wd_eigen.php';
 require_once __DIR__ . '/wd_haus.php';
+require_once __DIR__ . '/wd_pv.php';
 
 if (!function_exists('lb_wurzel_ermitteln')) {
     function lb_wurzel_ermitteln()
@@ -170,6 +171,14 @@ function wd_felder()
         'mqtt_ein' => array('mqtt_save', 'h', 1, 0, 0),
         'mqtt_topic' => array('mqtt_save', 'thema', 'weatherdata', 0, 0),
         'haus_wetter_ein' => array('mqtt_save', 'h', 0, 0, 0),      // 0.9.8: Hausthemen haus/wetter, ab Werk aus (Hausherr 04.11.2026)
+        // 0.9.10: PV-Prognose ohne Konto unter haus/pv, ab Werk aus; bis 4 Flaechen (kWp 0 = Flaeche nicht benutzt), Azimut 0 Sued, -90 Ost, 90 West
+        'haus_pv_ein' => array('pv_save', 'h', 0, 0, 0),
+        'pv1_name' => array('pv_save', 'pvname', '', 0, 0), 'pv1_kwp' => array('pv_save', 'z', 0, 0, 100), 'pv1_neigung' => array('pv_save', 'z', 30, 0, 90), 'pv1_az' => array('pv_save', 'z', 0, -180, 180),
+        'pv2_name' => array('pv_save', 'pvname', '', 0, 0), 'pv2_kwp' => array('pv_save', 'z', 0, 0, 100), 'pv2_neigung' => array('pv_save', 'z', 30, 0, 90), 'pv2_az' => array('pv_save', 'z', 0, -180, 180),
+        'pv3_name' => array('pv_save', 'pvname', '', 0, 0), 'pv3_kwp' => array('pv_save', 'z', 0, 0, 100), 'pv3_neigung' => array('pv_save', 'z', 30, 0, 90), 'pv3_az' => array('pv_save', 'z', 0, -180, 180),
+        'pv4_name' => array('pv_save', 'pvname', '', 0, 0), 'pv4_kwp' => array('pv_save', 'z', 0, 0, 100), 'pv4_neigung' => array('pv_save', 'z', 30, 0, 90), 'pv4_az' => array('pv_save', 'z', 0, -180, 180),
+        'pv_faktor' => array('pv_save', 'z', 0.85, 0.5, 1),
+        'pv_wr_max_w' => array('pv_save', 'z', 0, 0, 1000000),
         'emu_ein' => array('emu_save', 'h', 0, 0, 0),
         'emu_nur_ms' => array('emu_save', 'h', 1, 0, 0),
         'lox_ein' => array('lox_save', 'h', 0, 0, 0),
@@ -201,6 +210,9 @@ function wd_wert_pruefen($k, $w)
         case 'azliste':
             $s = is_scalar($w) ? trim((string) $w) : '';
             return preg_match('/^-?[0-9]{1,3}(,-?[0-9]{1,3}){0,3}\z/', $s) ? array(true, $s, '') : array(false, null, wd_t('MELD.W_AZ'));
+        case 'pvname':     // 0.9.10: Name einer PV-Flaeche, nur zur Anzeige; Buchstaben (auch Umlaute), Ziffern, Leerzeichen, . - ( ) /
+            $s = is_scalar($w) ? trim((string) $w) : '';
+            return ($s === '' || (strlen($s) <= 40 && preg_match('#^[\p{L}\p{N} .\-()/]{1,30}\z#u', $s))) ? array(true, $s, '') : array(false, null, wd_t('MELD.W_PVNAME'));
         case 'region':
             $s = is_scalar($w) ? trim((string) $w) : '';
             return ($s === '' || preg_match('/^[0-9]{2,3}\z/', $s)) ? array(true, $s, '') : array(false, null, wd_t('MELD.W_REGION'));
@@ -847,7 +859,7 @@ function wd_sicherung_lesen($roh, $geltend = null)
     $fehlt = array();
     // Felder, die eine Sicherung von vor 0.9.4 nicht kennen kann, gelten mit ihrer Vorgabe; alles andere muss da sein.
     $wf_felder = wd_felder();
-    foreach (array_keys(wd_vorgaben()) as $k) { if (!array_key_exists($k, $d) && !in_array($k, array('wttr_ein', 'emu_ein', 'emu_nur_ms', 'wu_ein', 'wu_station', 'lox_ein', 'lox_gueltig_min', 'haus_wetter_ein'), true) && !(isset($wf_felder[$k]) && $wf_felder[$k][1] === 'g')) { $fehlt[] = $k; } }
+    foreach (array_keys(wd_vorgaben()) as $k) { if (!array_key_exists($k, $d) && !in_array($k, array('wttr_ein', 'emu_ein', 'emu_nur_ms', 'wu_ein', 'wu_station', 'lox_ein', 'lox_gueltig_min', 'haus_wetter_ein'), true) && !preg_match('/^(haus_pv_ein|pv[1-4]?_[a-z_]+)\z/', $k) && !(isset($wf_felder[$k]) && $wf_felder[$k][1] === 'g')) { $fehlt[] = $k; } }
     if ($fehlt) { $mangel[] = sprintf(wd_t('SICH.FEHLEND'), count($fehlt), implode(', ', $fehlt)); }
     if (trim((string) $neu['aktionstoken']) === '') { $mangel[] = wd_t('SICH.TOKEN_LEER'); }
     return array($mangel ? null : $neu, $mangel, $n, $hin);
