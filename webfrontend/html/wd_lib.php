@@ -174,10 +174,15 @@ function wd_felder()
         // 0.9.10: PV-Prognose ohne Konto unter haus/pv, ab Werk aus; bis 4 Flaechen (kWp 0 = Flaeche nicht benutzt), Azimut 0 Sued, -90 Ost, 90 West
         'haus_pv_ein' => array('pv_save', 'h', 0, 0, 0),
         'pv1_name' => array('pv_save', 'pvname', '', 0, 0), 'pv1_kwp' => array('pv_save', 'z', 0, 0, 100), 'pv1_neigung' => array('pv_save', 'z', 30, 0, 90), 'pv1_az' => array('pv_save', 'z', 0, -180, 180),
+        'pv1_schatten_morgen' => array('pv_save', 'uleer', '', 0, 0), 'pv1_schatten_abend' => array('pv_save', 'uleer', '', 0, 0),     // 0.9.11: oertlicher Schatten, leer = keiner
         'pv2_name' => array('pv_save', 'pvname', '', 0, 0), 'pv2_kwp' => array('pv_save', 'z', 0, 0, 100), 'pv2_neigung' => array('pv_save', 'z', 30, 0, 90), 'pv2_az' => array('pv_save', 'z', 0, -180, 180),
+        'pv2_schatten_morgen' => array('pv_save', 'uleer', '', 0, 0), 'pv2_schatten_abend' => array('pv_save', 'uleer', '', 0, 0),     // 0.9.11: oertlicher Schatten, leer = keiner
         'pv3_name' => array('pv_save', 'pvname', '', 0, 0), 'pv3_kwp' => array('pv_save', 'z', 0, 0, 100), 'pv3_neigung' => array('pv_save', 'z', 30, 0, 90), 'pv3_az' => array('pv_save', 'z', 0, -180, 180),
+        'pv3_schatten_morgen' => array('pv_save', 'uleer', '', 0, 0), 'pv3_schatten_abend' => array('pv_save', 'uleer', '', 0, 0),     // 0.9.11: oertlicher Schatten, leer = keiner
         'pv4_name' => array('pv_save', 'pvname', '', 0, 0), 'pv4_kwp' => array('pv_save', 'z', 0, 0, 100), 'pv4_neigung' => array('pv_save', 'z', 30, 0, 90), 'pv4_az' => array('pv_save', 'z', 0, -180, 180),
+        'pv4_schatten_morgen' => array('pv_save', 'uleer', '', 0, 0), 'pv4_schatten_abend' => array('pv_save', 'uleer', '', 0, 0),     // 0.9.11: oertlicher Schatten, leer = keiner
         'pv_faktor' => array('pv_save', 'z', 0.85, 0.5, 1),
+        'pv_temp_beiwert' => array('pv_save', 'z', 0.38, 0.2, 0.5),     // 0.9.11: %/K, Moduldatenblatt "Temperaturkoeffizient Pmax"
         'pv_wr_max_w' => array('pv_save', 'z', 0, 0, 1000000),
         'emu_ein' => array('emu_save', 'h', 0, 0, 0),
         'emu_nur_ms' => array('emu_save', 'h', 1, 0, 0),
@@ -245,6 +250,9 @@ function wd_wert_pruefen($k, $w)
         case 'u':
             $s = is_scalar($w) ? trim((string) $w) : '';
             return preg_match('/^([01][0-9]|2[0-3]):[0-5][0-9]\z/', $s) ? array(true, $s, '') : array(false, null, wd_t('MELD.W_ZEIT'));
+        case 'uleer':     // 0.9.11: Uhrzeit HH:MM oder leer (Schatten einer PV-Flaeche)
+            $s = is_scalar($w) ? trim((string) $w) : '';
+            return ($s === '' || preg_match('/^([01][0-9]|2[0-3]):[0-5][0-9]\z/', $s)) ? array(true, $s, '') : array(false, null, wd_t('MELD.W_ZEIT_LEER'));
         case 'a':
             return (is_string($w) && in_array($w, $f[3], true)) ? array(true, $w, '') : array(false, null, wd_t('MELD.W_AUSWAHL'));
         case 'g':

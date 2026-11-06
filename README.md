@@ -107,6 +107,17 @@ Dieses Plugin enthält keinen fremden Code. Es liest:
 
 Die Unwetterzentrale ist wegen ihrer Bedingungen bewusst nicht eingebaut. **WetterOnline ist ebenfalls nicht eingebaut, anders als bei Weather4Lox:** Es gibt keine öffentlich dokumentierte Schnittstelle; Weather4Lox nutzt Adressen, die für die WetterOnline-App gedacht sind. Die AGB (Fassung vom 24.02.2025, Ziffer 2) untersagen die unberechtigte Vervielfältigung und Speicherung der Inhalte und verweisen auf eine Anfrage vorab. Das Antwortformat des Emulators ist am öffentlichen Quelltext von Weather4Lox (Apache-2.0, Michael Schlenstedt, Jan Wachsmuth) abgelesen; es ist keine Zeile daraus übernommen. „Loxone“ ist eine Marke ihres Inhabers. Lizenz dieses Plugins: MIT.
 
+## Neu in 0.9.11
+
+Am Gerät und an einem echten Broker nicht gemessen; gegen Attrappen (Open-Meteo-Antwort, Prüf-Broker) gefahren. Keine zusätzlichen Abrufe: Schneehöhe und Diffusstrahlung kommen in derselben Anfrage mit.
+
+- **PV-Prognose: Schnee.** Sagt die Prognose für eine Stunde mindestens 2 cm Schnee am Boden, rechnet das Plugin für Flächen flacher als 60 Grad in dieser Stunde mit 0 – so lange, bis die Prognose wieder weniger als 2 cm sagt. Das ist grob: Ob der Schnee früher von den Modulen rutscht oder taut, weiß die Prognose nicht. Neues Thema `haus/pv/schnee` (1 = in der laufenden Stunde liegt laut Prognose Schnee).
+- **PV-Prognose: Schatten vor Ort.** Je Fläche optional „Schatten morgens bis“ und „Schatten abends ab“ (Uhrzeit, leer = kein Schatten). In diesen Minuten zählt statt der vollen Strahlung nur das diffuse Himmelslicht auf die schräge Fläche (Diffusstrahlung × (1 + cos Neigung) / 2). Einmal im Sommer und einmal im Winter nachsehen und ein Mittel eintragen – die Sonnenbahn wandert übers Jahr, das bildet eine feste Uhrzeit nur ungefähr ab.
+- **PV-Prognose: Temperaturkoeffizient** als Einstellung (Vorgabe 0,38 %/K, erlaubt 0,20 bis 0,50; steht im Moduldatenblatt als „Temperaturkoeffizient Pmax“). Bisher fest 0,4 %/K. Die Erwärmung der Module (etwa +0,031 K je W/m²) und die Begrenzung auf 0,80 bis 1,10 bleiben.
+- **Stundenreihen für andere Plugins:** `haus/pv/heute_stunden` und `haus/pv/morgen_stunden` – je 24 ganze Watt-Werte für 0 bis 23 Uhr, mit `;` getrennt (wie `haus/strompreis/vorschau`), −1 für eine fehlende Stunde, `-` ohne Prognose. Damit bleiben jetzt 15 Themen im Broker; beim Ausschalten und bei der Deinstallation werden alle 15 abgeräumt.
+- **Hinweis bei zwei PV-Prognosen:** Ist auf demselben LoxBerry PV Solcast NG installiert und sendet es über MQTT, zeigen Abschnitt PV-Prognose und Reiter Test einen gelben Hinweis „Zwei PV-Prognosen? Nur eine sollte haus/pv liefern“. Weatherdata liest dafür nur die Plugin-Liste und die Einstellung von PV Solcast NG; es schaltet nichts ab.
+- Nach dem Update holt das Plugin die Prognose einmal neu (die alte enthält Schnee und Diffusstrahlung noch nicht); bis dahin, höchstens einige Minuten, steht −1.
+
 ## Neu in 0.9.10
 
 Am Gerät und an einem echten Broker nicht gemessen; gegen Attrappen (Open-Meteo-Antwort, Prüf-Broker) gefahren.

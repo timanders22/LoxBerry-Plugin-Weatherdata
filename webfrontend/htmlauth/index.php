@@ -232,6 +232,12 @@ foreach (array('save', 'quellen_save', 'zusatz_save', 'pv_save', 'warn_save', 'm
         if (($wf_neu['lat'] === '') !== ($wf_neu['lon'] === '')) { $wf_fehler[] = wd_t('MELD.W_POS_PAAR'); $wf_bean[] = 'lat'; $wf_bean[] = 'lon'; }
         if (!((float) $wf_neu['hitze1_c'] < (float) $wf_neu['hitze2_c'] && (float) $wf_neu['hitze2_c'] < (float) $wf_neu['hitze3_c'])) { $wf_fehler[] = wd_t('MELD.W_HITZE_FOLGE'); $wf_bean[] = 'hitze1_c'; $wf_bean[] = 'hitze2_c'; $wf_bean[] = 'hitze3_c'; }
     }
+    if ($wf_form === 'pv_save') {     // 0.9.11: Schatten morgens muss vor Schatten abends enden
+        for ($wf_pi = 1; $wf_pi <= 4; $wf_pi++) {
+            $wf_sm = wd_pv_minute($wf_neu['pv' . $wf_pi . '_schatten_morgen'] ?? ''); $wf_sa = wd_pv_minute($wf_neu['pv' . $wf_pi . '_schatten_abend'] ?? '');
+            if ($wf_sm !== null && $wf_sa !== null && $wf_sm >= $wf_sa) { $wf_fehler[] = sprintf(wd_t('MELD.W_PV_SCHATTEN'), $wf_pi); $wf_bean[] = 'pv' . $wf_pi . '_schatten_morgen'; $wf_bean[] = 'pv' . $wf_pi . '_schatten_abend'; }
+        }
+    }
     if ($wf_form === 'warn_save') {
         $wf_tm = array(); $wf_tb = array(); $wf_th = array();
         $wf_neu['tts'] = ansage_formular_lesen($_POST, $wf_alt['tts'], $wf_tm, $wf_tb, array('modi' => wd_ansage_modi(), 'ziele' => true, 'token_vor_ort' => true, 'aus_gewinnt' => true), wd_ansage_k(), $wf_th);
@@ -340,7 +346,7 @@ function wf_feld($k)
         $o .= '<label style="display:inline-flex;align-items:center;gap:6px;font-weight:400;"><input data-role="none" type="checkbox" name="' . $k . '_loeschen" value="1"> ' . wd_e(wd_t('TEXT.LOESCHEN')) . '</label>';
     } elseif ($f[1] === 'region' || $f[1] === 'land') {
         $o .= '<label for="' . $k . '">' . $l . '</label>' . wf_auswahl($k, $k, wf_w($k), wf_m($k));
-    } elseif ($f[1] === 'u') {
+    } elseif ($f[1] === 'u' || $f[1] === 'uleer') {
         $o .= '<label for="' . $k . '">' . $l . '</label><input data-role="none" type="time" id="' . $k . '" name="' . $k . '" value="' . $v . '"' . wf_m($k) . '>';
     } else {
         $o .= '<label for="' . $k . '">' . $l . '</label><input data-role="none" type="text" id="' . $k . '" name="' . $k . '" value="' . $v . '"' . wf_m($k) . '>';
@@ -614,9 +620,11 @@ if ($wf_frame) { LBWeb::lbheader('Weatherdata', 'https://wiki.loxberry.de/plugin
 <?php for ($wf_pi = 1; $wf_pi <= 4; $wf_pi++) { ?><div class="sm-step" id="wd-pv-flaeche<?= $wf_pi ?>">
 <h3 class="sm-h3"><?= wd_e(sprintf(wd_t('PV.H_FLAECHE'), $wf_pi)) ?></h3>
 <?= wf_feld('pv' . $wf_pi . '_name') ?><?= wf_feld('pv' . $wf_pi . '_kwp') ?><?= wf_feld('pv' . $wf_pi . '_neigung') ?><?= wf_feld('pv' . $wf_pi . '_az') ?>
+<?= wf_feld('pv' . $wf_pi . '_schatten_morgen') ?><?= wf_feld('pv' . $wf_pi . '_schatten_abend') ?>
 </div>
 <?php } ?>
-<?= wf_feld('pv_faktor') ?><?= wf_feld('pv_wr_max_w') ?>
+<?= wf_feld('pv_faktor') ?><?= wf_feld('pv_temp_beiwert') ?><?= wf_feld('pv_wr_max_w') ?>
+<div class="sm-hilfe"><?= wd_e(wd_t('PV.SCHNEE_HILFE')) ?></div>
 <button data-role="none" class="sm-btn sm-b-aktion" type="submit"><?= wd_e(wd_t('TEXT.SPEICHERN')) ?></button>
 </form>
 <h3 class="sm-h3"><?= wd_e(wd_t('PV.H_THEMEN')) ?></h3>
