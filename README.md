@@ -107,6 +107,10 @@ Dieses Plugin enthält keinen fremden Code. Es liest:
 
 Die Unwetterzentrale ist wegen ihrer Bedingungen bewusst nicht eingebaut. **WetterOnline ist ebenfalls nicht eingebaut, anders als bei Weather4Lox:** Es gibt keine öffentlich dokumentierte Schnittstelle; Weather4Lox nutzt Adressen, die für die WetterOnline-App gedacht sind. Die AGB (Fassung vom 24.02.2025, Ziffer 2) untersagen die unberechtigte Vervielfältigung und Speicherung der Inhalte und verweisen auf eine Anfrage vorab. Das Antwortformat des Emulators ist am öffentlichen Quelltext von Weather4Lox (Apache-2.0, Michael Schlenstedt, Jan Wachsmuth) abgelesen; es ist keine Zeile daraus übernommen. „Loxone“ ist eine Marke ihres Inhabers. Lizenz dieses Plugins: MIT.
 
+## Neu in 0.9.12
+
+- Gemeinsames Sprachmodul 1.4.2: Wird eine Ansage bewusst nicht gesprochen (gerade eben schon gesagt, gesperrt oder Ruhezeit), steht das im Protokoll jetzt so – und nicht mehr als Fehler.
+
 ## Neu in 0.9.11
 
 Am Gerät und an einem echten Broker nicht gemessen; gegen Attrappen (Open-Meteo-Antwort, Prüf-Broker) gefahren. Keine zusätzlichen Abrufe: Schneehöhe und Diffusstrahlung kommen in derselben Anfrage mit.
