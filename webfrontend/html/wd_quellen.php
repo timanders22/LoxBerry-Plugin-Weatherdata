@@ -508,6 +508,9 @@ function wd_zustand(array $c, $station, $jetzt)
         list($g, $ga) = wd_gefuehlt($jw['temp_c'], $jw['rf_pct'], $jw['wind_kmh']);
     }
     $st['gefuehlt'] = $g; $st['gefuehlt_art'] = $ga;
+    // 0.9.14: WBGT-Schaetzung aus denselben Jetzt-Werten, nur mit Haken (ab Werk aus). Die Herkunft je Eingang steht fuer die Anzeige daneben.
+    $st['wbgt'] = !empty($c['wbgt_ein']) ? wd_wbgt_jetzt($jw, wd_position($c), (float) $c['wbgt_wind_m'], $jetzt) : null;
+    if (is_array($st['wbgt'])) { $st['wbgt']['her'] = array_values(array_unique(array($her['temp_c'], $her['rf_pct'], $her['wind_kmh'], $her['strahlung_wm2']))); }
     list($pg, $pl, $puv) = $st['prog_ok'] ? wd_prog_heute_rest($std, $jetzt) : array(null, null, null);
 
     // Schwellen mit Hysterese
@@ -585,6 +588,16 @@ function wd_werte(array $st, array $c, $zaehler)
     $w['jetzt/ok'] = $st['jetzt_ok'] ? 1 : 0; $w['jetzt/ist_ersatz'] = (int) $st['ist_ersatz'];
     foreach ($st['jetzt'] as $k => $v) { $w['jetzt/' . $k] = $v; $w['herkunft/' . $k] = $st['herkunft'][$k]; }
     $w['gefuehlt/ok'] = $st['gefuehlt'] !== null ? 1 : 0; $w['gefuehlt/c'] = $st['gefuehlt']; $w['gefuehlt/art'] = $st['gefuehlt_art'];
+    // 0.9.14: WBGT-Themen nur mit Haken; ohne Haken gehen sie gar nicht hinaus (nicht retained, also nichts abzuraeumen). Ohne Aussage: "-".
+    if (!empty($c['wbgt_ein'])) {
+        $wb = (isset($st['wbgt']) && is_array($st['wbgt']) && !empty($st['wbgt']['ok'])) ? $st['wbgt'] : null;
+        $w['jetzt/wbgt_ok'] = $wb ? 1 : 0;
+        $w['jetzt/wbgt_c'] = $wb ? $wb['wbgt'] : null; $w['jetzt/wbgt_stufe'] = $wb ? (int) $wb['stufe'] : null;
+        $w['jetzt/wbgt_wort'] = $wb ? wd_t('WBGT.STUFE_' . (int) $wb['stufe'], (string) $c['ansage_sprache']) : null;
+        $w['jetzt/globe_c'] = $wb ? $wb['tg'] : null; $w['jetzt/feuchtkugel_c'] = $wb ? $wb['tnwb'] : null;
+    } else {
+        foreach (wd_wbgt_themen() as $t) { unset($w[$t]); }
+    }
     $w['prog/ok'] = $st['prog_ok'] ? 1 : 0;
     foreach ($st['prog'] as $k => $v) { $w['prog/' . $k] = $v; }
     foreach ($st['tage'] as $i => $t) { $w['prog/tag' . $i . '/tmax_c'] = $t['tmax']; $w['prog/tag' . $i . '/tmin_c'] = $t['tmin']; $w['prog/tag' . $i . '/code'] = $t['code']; }
@@ -784,6 +797,45 @@ function wd_selbsttest()
     $zeile(wd_t('PRUEF.HI'), $a === 'hitzeindex' && $nah($w, 40.5, 0.7), sprintf(wd_t('PRUEF.H_GERECHNET'), $zl($w, '°C')));
     list($w, $a) = wd_gefuehlt(18, 50, 3);
     $zeile(wd_t('PRUEF.LUFT'), $a === 'luft' && $nah($w, 18), sprintf(wd_t('PRUEF.H_GERECHNET'), $zl($w, '°C')));
+    // 0.9.14: WBGT-Schaetzung. Feuchtthermometer ohne Strahlung gegen den Psychrometerwert 20 C / 50 % = 13,7 C (Stull 2011, Beispiel der NCL-Doku wetbulb_stull).
+    $wp = wd_wbgt_feucht(293.15, 0.5, 1013.25, 2.0, 0.0, 0.0, 0.5, 0);
+    $zeile(wd_t('PRUEF.WBGT_PSY'), $wp !== null && $nah($wp, 13.7, 0.3), sprintf(wd_t('PRUEF.H_GERECHNET'), $zl($wp, '°C')));
+    // Sonnenstand: 21.06., 12 Uhr UTC, 50 N, 0 E: Mittagshoehe 90 - 50 + 23,44 Grad, Kosinus des Zenitwinkels cos(26,56 Grad) = 0,894
+    list($wcz) = wd_wbgt_sonne(gmmktime(12, 0, 0, 6, 21, 2026), 50.0, 0.0);
+    $zeile(wd_t('PRUEF.WBGT_SONNE'), $nah($wcz, 0.894, 0.005), sprintf(wd_t('PRUEF.H_GERECHNET'), $zl($wcz, '', 3)));
+    // Sommertag 32 C, 40 %, 2 m/s in 2 m, 900 W/m2, 1013 hPa, 01.07.2026 11 UTC, 50 N 10 E. Vergleichswerte aus einer zweiten, getrennt
+    // geschriebenen Umsetzung (Python, nach denselben Quellen) - keine Veroeffentlichung: Tg 46,96, Tnwb 23,66, WBGT 29,16. Dazu die Physik:
+    // Kugel deutlich ueber der Luft, Feuchtkugel darunter, WBGT zwischen beiden.
+    list($wcz, $we0) = wd_wbgt_sonne(gmmktime(11, 0, 0, 7, 1, 2026), 50.0, 10.0);
+    $ws = wd_wbgt(32.0, 40.0, 2.0, 2.0, 900.0, 1013.0, $wcz, $we0);
+    $wsx = wd_wbgt(32.0, 40.0, 2.0, 2.0, 1300.0, 1013.0, $wcz, $we0);     // mehr als 0,85 der Strahlung am Oberrand der Atmosphaere: wird darauf begrenzt (Referenz)
+    $zeile(wd_t('PRUEF.WBGT_SOMMER'), is_array($ws) && $nah($ws['tg'], 46.96, 0.05) && $nah($ws['tnwb'], 23.66, 0.05) && $nah($ws['wbgt'], 29.16, 0.05) && $ws['tg'] > 32.0 && $ws['tnwb'] < 32.0
+        && wd_wbgt_stufe(round($ws['wbgt'], 1)) === 2 && is_array($wsx) && $nah($wsx['s'], 0.85 * 1367.0 * $wcz * $we0, 0.5), is_array($ws) ? sprintf(wd_t('PRUEF.H_WBGT'), $zl($ws['tg'], '°C'), $zl($ws['tnwb'], '°C'), $zl($ws['wbgt'], '°C')) : '-');
+    // Nacht 3 C, 90 %, 3 km/h in 10 m, keine Strahlung, Sonne unter dem Horizont; dazu Windstille (0 km/h zaehlt wie 0,13 m/s)
+    list($wcz, $we0) = wd_wbgt_sonne(gmmktime(1, 0, 0, 11, 7, 2026), 50.0, 10.0);
+    $wn = wd_wbgt(3.0, 90.0, 3 / 3.6, 10.0, 0.0, 1013.0, $wcz, $we0); $w0 = wd_wbgt(3.0, 90.0, 0.0, 10.0, 0.0, 1013.0, $wcz, $we0);
+    $zeile(wd_t('PRUEF.WBGT_NACHT'), $wcz < 0 && is_array($wn) && is_array($w0) && $wn['fdir'] == 0.0 && $wn['tg'] < 3.0 && $wn['tg'] > 0.0 && $wn['tnwb'] < 3.0 && $wn['wbgt'] < 3.0 && $nah($wn['wbgt'], 1.35, 0.05),
+        is_array($wn) ? sprintf(wd_t('PRUEF.H_WBGT'), $zl($wn['tg'], '°C'), $zl($wn['tnwb'], '°C'), $zl($wn['wbgt'], '°C')) : '-');
+    // Ohne Aussage: ein fehlender Wert, Feuchte 0, Wind negativ, kein Standort
+    $wjz = gmmktime(11, 0, 0, 7, 1, 2026);
+    $wj = array('temp_c' => 20.0, 'rf_pct' => 50.0, 'wind_kmh' => 10.0, 'strahlung_wm2' => 300.0, 'druck_hpa' => 1000.0);
+    $wl = wd_wbgt_jetzt($wj, array(50.0, 10.0), 10, $wjz);
+    $wf = 0;
+    foreach (array('temp_c', 'rf_pct', 'wind_kmh', 'strahlung_wm2') as $wk) { $wx = $wj; $wx[$wk] = null; $wr = wd_wbgt_jetzt($wx, array(50.0, 10.0), 10, $wjz); if (!empty($wr['ok'])) { $wf++; } }
+    $wr0 = wd_wbgt_jetzt(array('rf_pct' => 0.0) + $wj, array(50.0, 10.0), 10, $wjz); $wrn = wd_wbgt_jetzt(array('wind_kmh' => -1.0) + $wj, array(50.0, 10.0), 10, $wjz); $wrp = wd_wbgt_jetzt($wj, null, 10, $wjz);
+    $wdn = wd_wbgt_jetzt(array('druck_hpa' => null) + $wj, array(50.0, 10.0), 10, $wjz);
+    $zeile(wd_t('PRUEF.WBGT_OHNE'), !empty($wl['ok']) && $wf === 0 && empty($wr0['ok']) && empty($wrn['ok']) && empty($wrp['ok']) && !empty($wdn['ok']) && $wdn['druck_norm'] === 1, sprintf(wd_t('PRUEF.H_FAELLE'), 9));
+    // Stufen nach TB MED 507, Table 3-2 (Fahrenheit): je Grenze knapp darunter und knapp darueber
+    $wsf = array(); foreach (array(array(25.5, 0), array(25.6, 1), array(27.7, 1), array(27.8, 2), array(29.4, 2), array(29.5, 3), array(31.1, 3), array(31.2, 4), array(32.2, 4), array(32.3, 5)) as $wg) { if (wd_wbgt_stufe($wg[0]) !== $wg[1]) { $wsf[] = $wg[0]; } }
+    $zeile(wd_t('PRUEF.WBGT_STUFEN'), !$wsf && wd_wbgt_stufe(null) === null, $wsf ? implode(', ', $wsf) : sprintf(wd_t('PRUEF.H_FAELLE'), 11));
+    // Versand und Hakenliste: ohne Haken kein WBGT-Thema, mit Haken alle sechs
+    $wt = wd_wbgt_themen(); $wst = array('ts' => $wjz, 'quellen' => array(), 'jetzt_ok' => false, 'ist_ersatz' => 0, 'jetzt' => array('uv' => null), 'herkunft' => array('uv' => 'keine', 'prog' => 'keine', 'warnung' => 'keine'), 'gefuehlt' => null, 'gefuehlt_art' => '-',
+        'prog_ok' => false, 'prog' => array(), 'tage' => array(), 'warn_ok' => false, 'lagen' => array(), 'schwelle_ok' => false, 'schwelle' => array(), 'hitze_warnung' => 0, 'hitze_max' => null, 'kuehlen_moeglich' => null, 'innen_c' => null,
+        'uv_hoch' => null, 'uv_ok' => false, 'uv_max' => 0, 'frost_erwartet' => null, 'starkregen' => null, 'sturm_vor' => null, 'lueftung_sperren' => null, 'wbgt' => $wl);
+    $wa = wd_werte($wst, array('wbgt_ein' => 0) + $c, 0); $wb = wd_werte($wst, array('wbgt_ein' => 1) + $c, 0);
+    $wha = array_column(wd_hakenliste(array('wbgt_ein' => 0) + $c), 'kurz'); $whb = array_column(wd_hakenliste(array('wbgt_ein' => 1) + $c), 'kurz');
+    $zeile(wd_t('PRUEF.WBGT_THEMEN'), !array_intersect_key($wa, array_flip($wt)) && count(array_intersect_key($wb, array_flip($wt))) === 6 && !array_intersect($wt, $wha) && count(array_intersect($wt, $whb)) === 6
+        && $wb['jetzt/wbgt_ok'] === 1 && $wb['jetzt/wbgt_c'] === $wl['wbgt'] && is_string($wb['jetzt/wbgt_wort']) && strpos($wb['jetzt/wbgt_wort'], 'WBGT.') !== 0, sprintf(wd_t('PRUEF.H_WBGT_THEMEN'), count($wt)));
     // Hysterese
     $zeile(wd_t('PRUEF.HYST'), wd_hysterese(32, 32, 1, 0) === 1 && wd_hysterese(31.5, 32, 1, 1) === 1 && wd_hysterese(31.5, 32, 1, 0) === 0 && wd_hysterese(30.9, 32, 1, 1) === 0 && wd_hysterese(null, 32, 1, 1) === null);
     // Warnregeln

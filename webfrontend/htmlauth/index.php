@@ -531,6 +531,10 @@ if ($wf_frame) { LBWeb::lbheader('Weatherdata', 'https://wiki.loxberry.de/plugin
 <h2><?= wd_e(wd_t('TEXT.H_SCHWELLEN')) ?></h2>
 <div class="sm-hilfe"><?= wd_e(wd_t('TEXT.SCHWELLEN_HILFE')) ?></div>
 <?= wf_feld('hitze_basis') ?><?= wf_feld('hitze1_c') ?><?= wf_feld('hitze2_c') ?><?= wf_feld('hitze3_c') ?><?= wf_feld('hysterese_k') ?><?= wf_feld('frost_c') ?><?= wf_feld('sturm_kmh') ?><?= wf_feld('regen1h_mm') ?><?= wf_feld('regen12h_mm') ?><?= wf_feld('uv_hoch') ?><?= wf_feld('sturm_vor_min') ?><?= wf_feld('lueften_delta_k') ?><?= wf_feld('lueften_innen_min_c') ?>
+<?php /* 0.9.14: WBGT-Schaetzung, ab Werk aus; gleiches Formular wie die Schwellen. */ ?>
+<h2 id="wd-wbgt"><?= wd_e(wd_t('TEXT.H_WBGT')) ?></h2>
+<div class="sm-hilfe"><?= wd_e(wd_t('TEXT.WBGT_HILFE')) ?></div>
+<?= wf_feld('wbgt_ein') ?><?= wf_feld('wbgt_wind_m') ?>
 <h2><?= wd_e(wd_t('TEXT.H_ZEITEN')) ?></h2>
 <?= wf_feld('om_takt_min') ?><?= wf_feld('dwd_takt_min') ?><?= wf_feld('prog_max_alter_min') ?><?= wf_feld('warn_max_alter_min') ?><?= wf_feld('morgen_zeit') ?><?= wf_feld('mittag_zeit') ?><?= wf_feld('abend_zeit') ?><?= wf_feld('lueften_letzte') ?>
 <button data-role="none" class="sm-btn sm-b-aktion" type="submit"><?= wd_e(wd_t('TEXT.SPEICHERN')) ?></button>
@@ -560,6 +564,12 @@ if ($wf_frame) { LBWeb::lbheader('Weatherdata', 'https://wiki.loxberry.de/plugin
 <tr><th><?= wd_e(wd_t('TEXT.T_WERT')) ?></th><th class="sm-zahl"><?= wd_e(wd_t('TEXT.T_STAND')) ?></th><th><?= wd_e(wd_t('TEXT.T_HERKUNFT')) ?></th><th class="sm-zahl"><?= wd_e(wd_t('WERTE.T_EIGEN')) ?></th><th class="sm-zahl"><?= wd_e(sprintf(wd_t('WERTE.T_DIENST'), $wf_dn)) ?></th><th class="sm-zahl"><?= wd_e(wd_t('WERTE.T_ABWEICHUNG')) ?></th></tr>
 <?php $wf_ez = function ($w, $eh) { return ($w === null || $w === '') ? '&ndash;' : wf_wert($w) . ($eh !== '' ? '&nbsp;' . wd_e($eh) : ''); }; $wf_omk = (array) ($wf_st['dienst_om'] ?? array()); foreach ((array) $wf_st['jetzt'] as $wf_k => $wf_v) { $wf_z = isset($wf_vg[$wf_k]) ? $wf_vg[$wf_k] : array(null, null, null, null); $wf_eh = wd_vergleich_einheit($wf_k); ?><tr<?= $wf_z[3] === true ? ' class="sm-abweichung"' : '' ?>><td><?= wd_e(wd_t('THEMA.jetzt_' . $wf_k)) ?></td><td class="sm-zahl"><?= $wf_ez($wf_v, $wf_eh) ?></td><td class="sm-her"><?= wd_e(wd_herkunft_name($wf_st['herkunft'][$wf_k] ?? '')) ?></td><td class="sm-zahl"><?= $wf_ez($wf_z[0], $wf_eh) ?></td><td class="sm-zahl"><?= $wf_ez($wf_z[1], $wf_eh) ?><?= ($wf_z[1] !== null && in_array($wf_k, $wf_omk, true)) ? '<sup title="' . wd_e(wd_t('WERTE.FUSS_OM')) . '">1</sup>' : '' ?></td><td class="sm-zahl"><?= $wf_z[2] === null ? '&ndash;' : wd_e(($wf_z[2] > 0 && $wf_k !== 'windrichtung_grad' ? '+' : '') . rtrim(rtrim(number_format($wf_z[2], 1, '.', ''), '0'), '.')) . ($wf_eh !== '' && $wf_z[2] !== null ? '&nbsp;' . wd_e($wf_eh) : '') ?><?= $wf_z[3] === true ? '<br><b>' . wd_e(wd_t('WERTE.DEUTLICH')) . '</b>' : '' ?></td></tr><?php } ?>
 <tr><td><?= wd_e(wd_t('THEMA.gefuehlt_c')) ?></td><td class="sm-zahl"><?= $wf_ez($wf_st['gefuehlt'], '°C') ?></td><td class="sm-her"><?= wd_e(wd_gefuehlt_herkunft($wf_st)) ?></td><td class="sm-zahl">&ndash;</td><td class="sm-zahl">&ndash;</td><td class="sm-zahl">&ndash;</td></tr>
+<?php if (!empty($wf_cfg['wbgt_ein'])) { $wf_wb = isset($wf_st['wbgt']) && is_array($wf_st['wbgt']) ? $wf_st['wbgt'] : null; $wf_wok = is_array($wf_wb) && !empty($wf_wb['ok']); /* 0.9.14: WBGT-Schaetzung */ ?>
+<tr id="wd-werte-wbgt"><td><?= wd_e(wd_t('THEMA.jetzt_wbgt_c')) ?></td><td class="sm-zahl"><?= $wf_ez($wf_wok ? $wf_wb['wbgt'] : null, '°C') ?></td><td class="sm-her"><?= wd_e(wd_wbgt_herkunft($wf_wb)) ?></td><td class="sm-zahl">&ndash;</td><td class="sm-zahl">&ndash;</td><td class="sm-zahl">&ndash;</td></tr>
+<tr><td><?= wd_e(wd_t('THEMA.jetzt_wbgt_stufe')) ?></td><td class="sm-zahl"><?= $wf_wok ? wd_e((string) (int) $wf_wb['stufe']) : '&ndash;' ?></td><td class="sm-her"><?= $wf_wok ? wd_e(wd_t('WBGT.STUFE_' . (int) $wf_wb['stufe'])) : '&ndash;' ?></td><td class="sm-zahl">&ndash;</td><td class="sm-zahl">&ndash;</td><td class="sm-zahl">&ndash;</td></tr>
+<tr><td><?= wd_e(wd_t('THEMA.jetzt_globe_c')) ?></td><td class="sm-zahl"><?= $wf_ez($wf_wok ? $wf_wb['tg'] : null, '°C') ?></td><td class="sm-her"><?= wd_e(wd_t('WERTE.H_RECHNUNG')) ?></td><td class="sm-zahl">&ndash;</td><td class="sm-zahl">&ndash;</td><td class="sm-zahl">&ndash;</td></tr>
+<tr><td><?= wd_e(wd_t('THEMA.jetzt_feuchtkugel_c')) ?></td><td class="sm-zahl"><?= $wf_ez($wf_wok ? $wf_wb['tnwb'] : null, '°C') ?></td><td class="sm-her"><?= wd_e(wd_t('WERTE.H_RECHNUNG')) ?></td><td class="sm-zahl">&ndash;</td><td class="sm-zahl">&ndash;</td><td class="sm-zahl">&ndash;</td></tr>
+<?php } ?>
 </table></div>
 <div class="sm-small" id="wd-werte-quelle"><?php if (!empty($wf_st['dienst_om'])) { ?><sup>1</sup> <?= wd_e(wd_t('WERTE.FUSS_OM')) ?> <?php } ?><?= wd_e(wd_t('WERTE.QUELLE')) ?></div>
 <div class="sm-hilfe" id="wd-werte-vergleich"><?= wd_e(wd_t('WERTE.HILFE')) ?></div>
@@ -766,6 +776,7 @@ echo ansage_regeln_html(wd_ansage_regeln($wf_cfg), array(), array(), $wf_hooks +
 <?php foreach ($wf_hk as $wf_i => $wf_h) { ?><tr><td><?= (int) $wf_i + 1 ?></td><td><span class="sm-mono"><?= wd_e($wf_h['thema']) ?></span></td><td><span class="sm-mono"><?= wd_e($wf_h['name']) ?></span></td><td><?= wd_e(wd_t($wf_h['retain'] ? 'TEXT.JA' : 'TEXT.NEIN')) ?></td><td><?= wd_e(wd_t($wf_h['nc'] ? 'TEXT.JA' : 'TEXT.NEIN')) ?></td><td><?= wd_e(wd_t($wf_h['pflicht'] === 'P' ? 'TEXT.PFLICHT' : 'TEXT.WAHL')) ?></td><td class="sm-small"><?= wd_e($wf_h['text']) ?></td></tr><?php } ?>
 </table></div>
 <div class="sm-small"><?= wd_e(wd_t('TEXT.MQTT_PFLICHT')) ?> <?= wd_e(wd_t('TEXT.MQTT_FUSS')) ?></div>
+<div class="sm-small" id="wd-wbgt-themen"><?= wd_e(sprintf(wd_t(!empty($wf_cfg['wbgt_ein']) ? 'TEXT.WBGT_THEMEN_AN' : 'TEXT.WBGT_THEMEN_AUS'), count(wd_wbgt_themen()))) ?></div>
 </div>
 
 <!-- Einbindung in Loxone -->
@@ -793,6 +804,12 @@ echo ansage_regeln_html(wd_ansage_regeln($wf_cfg), array(), array(), $wf_hooks +
 <div class="sm-hilfe"><?= wd_e(wd_t('EINB.W4L_HILFE')) ?></div>
 <div class="sm-breit"><table class="sm-tbl"><tr><th><?= wd_e(wd_t('EINB.T_ALT')) ?></th><th><?= wd_e(wd_t('EINB.T_NEU')) ?></th></tr>
 <?php foreach (array('T1' => 'jetzt/temp_c', 'T2' => 'jetzt/rf_pct', 'T3' => 'jetzt/wind_kmh', 'T4' => 'jetzt/regen_mmh', 'T5' => 'jetzt/strahlung_wm2', 'T6' => 'status/zaehler', 'T7' => 'jetzt/uv', 'T8' => 'prog/h12/tmin_c', 'T9' => 'prog/h12/regen_mm', 'T10' => 'prog/h12/tmax_c', 'T11' => 'prog/h24/tmax_c', 'T12' => 'prog/h24/schnee_cm', 'T13' => 'prog/h4/solar_wm2', 'T14' => 'prog/h12/solar_wm2', 'T15' => 'prog/h24/solar_wm2', 'T16' => 'prog/h48/solar_wm2', 'T17' => 'prog/tag0/tmax_c', 'T18' => 'prog/tag1/tmax_c', 'T19' => 'prog/tag2/tmax_c') as $wf_a => $wf_b) { ?><tr><td><?= wd_e(wd_t('W4L.' . $wf_a)) ?></td><td><span class="sm-mono"><?= wd_e($wf_pf . '/' . $wf_b) ?></span></td></tr><?php } ?>
+</table></div>
+<?php /* 0.9.14: WBGT-Schaetzung - Namen immer zum Abschreiben, auch bei ausgeschaltetem Haken (dann mit Hinweis). */ ?>
+<h2 id="wd-einb-wbgt"><?= wd_e(wd_t('EINB.H_WBGT')) ?></h2>
+<div class="sm-hilfe"><?= wd_e(wd_t(!empty($wf_cfg['wbgt_ein']) ? 'EINB.WBGT_HILFE' : 'EINB.WBGT_AUS')) ?></div>
+<div class="sm-breit sm-passt"><table class="sm-tbl sm-fest"><colgroup><col style="width:27%"><col style="width:27%"><col style="width:16%"><col style="width:8%"><col style="width:22%"></colgroup><tr><th><?= wd_e(wd_t('TEXT.T_THEMA')) ?></th><th><?= wd_e(wd_t('TEXT.T_NAME')) ?></th><th><?= wd_e(wd_t('EINB.T_BAUSTEIN')) ?></th><th><?= wd_e(wd_t('TEXT.T_RETAIN')) ?></th><th><?= wd_e(wd_t('TEXT.T_BEDEUTUNG')) ?></th></tr>
+<?php $wf_wtb = wd_mqtt_tabelle(); foreach (wd_wbgt_themen() as $wf_wt) { ?><tr><td><span class="sm-mono"><?= wd_e(wd_mqtt_thema($wf_pf . '/' . $wf_wt)) ?></span></td><td><span class="sm-mono"><?= wd_e(wd_gateway_name($wf_pf, $wf_wt)) ?></span></td><td><?= wd_e(wd_t($wf_wtb[$wf_wt][0] === 't' ? 'EINB.B_TEXT' : 'EINB.B_ZAHL')) ?></td><td><?= wd_e(wd_t($wf_wtb[$wf_wt][2] ? 'TEXT.JA' : 'TEXT.NEIN')) ?></td><td class="sm-small"><?= wd_e(wd_t('THEMA.' . str_replace('/', '_', $wf_wt))) ?></td></tr><?php } ?>
 </table></div>
 <h2><?= wd_e(wd_t('EINB.H_ENDPUNKT')) ?></h2>
 <div class="sm-hilfe"><?= wd_e(wd_t('EINB.ENDPUNKT_HILFE')) ?></div>

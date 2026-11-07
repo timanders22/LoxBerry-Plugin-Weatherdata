@@ -19,6 +19,7 @@ Liefert Wetterwerte, Prognosen, amtliche Warnungen, Handlungssignale und fertige
 - **Warnungen** vom Deutschen Wetterdienst, je Warnzelle (DWD-CAP). Fällt der DWD aus, springt Bright Sky ein. Warnstufe 0 bis 4 ist die amtliche Schwere. Keine Warnung (0) und nichts bekannt (Strich) sind verschieden.
 - **Ist-Werte**, wahlweise von der eigenen Station über die Ecowitt-Weiche. Fehlt die Station oder ist sie nicht plausibel, gilt der Prognosewert für jetzt, gekennzeichnet mit `jetzt/ist_ersatz`.
 - **Gefühlte Temperatur** immer aus derselben Formel, selbst gerechnet: Windchill und Hitzeindex nach den Formeln des US National Weather Service, sonst Lufttemperatur. Das ist **nicht** die Gefühlte Temperatur des DWD.
+- **Hitzebelastung draußen (WBGT)** als Schätzung aus den vorhandenen Werten, ab 0.9.14, ab Werk aus; siehe „Neu in 0.9.14“.
 - **Eigene Schwellen** ab Werk 32, 35 und 38 °C, frei änderbar, mit Hysterese; dazu Frost, Sturm, Starkregen und UV. Meldung immer als eigene Rechnung, nie als Hitzewarnung.
 - **Handlungssignale**, getrennt von der Warnstufe: `hitze/warnung`, `kuehlen_moeglich`, `uv/hoch`, `frost/erwartet`, `starkregen/warnung`, `sturm/vorwarnung`. Was daraus wird, entscheidet Loxone.
 - **Sprachansagen** über das gemeinsame Sprachmodul.
@@ -97,6 +98,7 @@ Dieses Plugin enthält keinen fremden Code. Es liest:
 - CAMS (Copernicus Atmosphere Monitoring Service) über Open-Meteo: Luftqualität.
 - DWD Pollenflug-Gefahrenindex `s31fg.json`: CC BY 4.0.
 - Formeln: US National Weather Service (Windchill, Hitzeindex).
+- WBGT-Schätzung (ab 0.9.14): Verfahren nach Liljegren, Carhart, Lawday, Tschopp und Sharp, „Modeling the Wet Bulb Globe Temperature Using Standard Meteorological Measurements“, J. Occup. Environ. Hyg. 5(10), 645–655 (2008); Formeln und Konstanten selbst geschrieben nach deren Referenzumsetzung `wbgt.c` (Copyright 2008 UChicago Argonne, LLC), keine Zeile übernommen. Sonnenstand nach den „General Solar Position Calculations“ der NOAA, Abstand Erde–Sonne nach Spencer (1971), Stufen nach TB MED 507 (2022), Tabelle 3-2.
 - **Wettersymbole der Wetterseite** (`webfrontend/html/symbole/<set>/`, je Ordner `LICENSE.txt` und `QUELLE.txt`; Kommentare und unbenutzte Kennungen entfernt, Kennungen mit Präfix, sonst unverändert):
   - [Meteocons](https://github.com/basmilius/meteocons) von Bas Milius, npm `@meteocons/svg-static` 0.1.0, Stil `fill`, MIT. 21 Bilder, etwa 80 KB.
   - [Phosphor Icons](https://github.com/phosphor-icons/core), npm `@phosphor-icons/core` 2.1.1, Stil `duotone`, MIT. 21 Bilder, etwa 14 KB.
@@ -106,6 +108,15 @@ Dieses Plugin enthält keinen fremden Code. Es liest:
 - Die Ecowitt-Weiche ist ein eigenes Plugin und bleibt getrennt installiert.
 
 Die Unwetterzentrale ist wegen ihrer Bedingungen bewusst nicht eingebaut. **WetterOnline ist ebenfalls nicht eingebaut, anders als bei Weather4Lox:** Es gibt keine öffentlich dokumentierte Schnittstelle; Weather4Lox nutzt Adressen, die für die WetterOnline-App gedacht sind. Die AGB (Fassung vom 24.02.2025, Ziffer 2) untersagen die unberechtigte Vervielfältigung und Speicherung der Inhalte und verweisen auf eine Anfrage vorab. Das Antwortformat des Emulators ist am öffentlichen Quelltext von Weather4Lox (Apache-2.0, Michael Schlenstedt, Jan Wachsmuth) abgelesen; es ist keine Zeile daraus übernommen. „Loxone“ ist eine Marke ihres Inhabers. Lizenz dieses Plugins: MIT.
+
+## Neu in 0.9.14
+
+- **Hitzebelastung draußen als Schätzung (WBGT), ab Werk aus.** Die Wet Bulb Globe Temperature fasst Lufttemperatur, Luftfeuchte, Wind und Sonne zu einer Zahl zusammen, nach der sich Arbeit und Sport im Freien richten. Gemessen wird sie mit einer schwarzen Kugel und einem feuchten Thermometer, etwa mit dem Ecowitt WN38. Weatherdata misst sie nicht, sondern rechnet sie aus den Werten, die es ohnehin hat: Temperatur, Feuchte, Wind und Strahlung aus der Tabelle „Jetzt“, dazu Luftdruck und Sonnenstand. Das Rechenverfahren stammt aus einer Veröffentlichung von Liljegren und anderen (2008); es schätzt auch die Temperatur der Kugel und des feuchten Thermometers.
+- Einschalten im Reiter Einstellungen, Abschnitt „Hitzebelastung draußen“. Dort steht auch die Höhe des Windmessers (Vorgabe 10 m, so liefert Open-Meteo den Wind), denn das Verfahren braucht den Wind in 2 m Höhe.
+- Gerechnet wird nur, wenn Temperatur, Feuchte, Wind und Strahlung vorliegen. Sonst steht ein Strich, und `jetzt/wbgt_ok` ist 0. Fehlt nur der Luftdruck, gilt 1013 hPa; der Reiter Werte sagt das dann.
+- Neue MQTT-Themen, nur mit dem Haken: `jetzt/wbgt_ok`, `jetzt/wbgt_c`, `jetzt/wbgt_stufe` (0 bis 5), `jetzt/wbgt_wort` (Text), `jetzt/globe_c` (Kugel) und `jetzt/feuchtkugel_c` (natürliches Feuchtthermometer). Es sind Messwerte, keins bleibt im Broker liegen. Die Namen für Loxone stehen im Reiter „Einbindung in Loxone“, Abschnitt WBGT-Schätzung.
+- Stufen nach der Tabelle 3-2 des US-Heeres (TB MED 507, 2022): Stufe 1 (weiß) ab 78 °F, 2 (grün) ab 82 °F, 3 (gelb) ab 85 °F, 4 (rot) ab 88 °F, 5 (schwarz) ab 90 °F; darunter Stufe 0. In Celsius mit einer Nachkommastelle: ab 25,6, 27,8, 29,5, 31,2 und 32,3 °C. Die Tabelle gilt dort für an Hitze gewöhnte Soldaten in Uniform; für Sport nennt dieselbe Schrift andere Bereiche.
+- Grenzen: Eine Schätzung, keine Messung und keine amtliche Warnung. Sie gilt für den Ort der Station oder das Gebiet der Vorhersage. Ein beschatteter oder verschmutzter Strahlungsfühler macht sie zu niedrig. Gegen eine echte Kugel ist sie an keiner Anlage gemessen, und mit veröffentlichten Zahlenbeispielen des Verfahrens ließ sie sich nicht vergleichen, weil keine zu finden waren. Der Reiter Test prüft die Rechnung in sieben Zeilen.
 
 ## Neu in 0.9.13
 

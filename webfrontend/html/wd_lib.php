@@ -106,6 +106,8 @@ function wd_felder()
         'sturm_vor_min' => array('save', 'z', 120, 10, 720),
         'lueften_delta_k' => array('save', 'z', 1, 0.2, 10),
         'lueften_innen_min_c' => array('save', 'z', 24, 15, 35),
+        'wbgt_ein' => array('save', 'h', 0, 0, 0),          // 0.9.14: WBGT-Schaetzung, ab Werk aus
+        'wbgt_wind_m' => array('save', 'z', 10, 1, 100),    // 0.9.14: Hoehe des Windmessers ueber Grund (m); Open-Meteo liefert 10 m
         'lueften_letzte' => array('save', 'u', '21:50', 0, 0),
         'morgen_zeit' => array('save', 'u', '07:30', 0, 0),
         'mittag_zeit' => array('save', 'u', '12:30', 0, 0),
@@ -534,6 +536,10 @@ function wd_mqtt_tabelle()
         'jetzt/regnet' => array('z', 0, 0, 'W', 0, 1, ''), 'jetzt/strahlung_wm2' => array('z', 0, 0, 'P', 0, 2000, 'W/m2'),
         'jetzt/uv' => array('z', 0, 0, 'P', 0, 20, ''),
         'gefuehlt/ok' => array('z', 1, 0, 'P', 0, 1, ''), 'gefuehlt/c' => array('z', 0, 0, 'W', -80, 70, 'C'), 'gefuehlt/art' => array('t', 0, 0, 'W', 0, 0, ''),
+        // 0.9.14: WBGT-Schaetzung, nur mit Haken wbgt_ein in Hakenliste, Vorlage und Versand (wd_wbgt_themen()); Messwerte, nicht retained.
+        'jetzt/wbgt_ok' => array('z', 1, 0, 'W', 0, 1, ''), 'jetzt/wbgt_c' => array('z', 0, 0, 'W', -60, 60, 'C'),
+        'jetzt/wbgt_stufe' => array('z', 0, 0, 'W', 0, 5, ''), 'jetzt/wbgt_wort' => array('t', 0, 0, 'W', 0, 0, ''),
+        'jetzt/globe_c' => array('z', 0, 0, 'W', -60, 100, 'C'), 'jetzt/feuchtkugel_c' => array('z', 0, 0, 'W', -60, 60, 'C'),
         'prog/ok' => array('z', 1, 0, 'P', 0, 1, ''),
         'prog/h1/regen_mm' => array('z', 0, 0, 'W', 0, 500, 'mm'), 'prog/h3/regen_mm' => array('z', 0, 0, 'W', 0, 500, 'mm'),
         'prog/h4/solar_wm2' => array('z', 0, 0, 'P', 0, 1500, 'W/m2'),
@@ -592,6 +598,12 @@ function wd_mqtt_tabelle()
 function wd_pflicht_themen()
 {
     return array('status/ok', 'status/zaehler', 'jetzt/ok', 'jetzt/ist_ersatz', 'jetzt/temp_c', 'jetzt/rf_pct', 'jetzt/wind_kmh', 'jetzt/regen_mmh', 'jetzt/strahlung_wm2', 'jetzt/uv', 'prog/ok', 'prog/h4/solar_wm2', 'prog/h12/tmin_c', 'prog/h12/tmax_c', 'prog/h12/regen_mm', 'prog/h24/tmax_c', 'prog/h24/schnee_cm', 'prog/tag1/tmax_c', 'warnung/ok', 'warnung/stufe', 'warnung/text', 'schwelle/hitze_32', 'frost/erwartet', 'starkregen/warnung', 'sturm/vorwarnung');
+}
+
+/** 0.9.14: die WBGT-Themen. EINE Liste fuer Versand (wd_werte), Hakenliste, Importvorlage und Selbstpruefung; sie gelten nur mit Haken wbgt_ein. */
+function wd_wbgt_themen()
+{
+    return array('jetzt/wbgt_ok', 'jetzt/wbgt_c', 'jetzt/wbgt_stufe', 'jetzt/wbgt_wort', 'jetzt/globe_c', 'jetzt/feuchtkugel_c');
 }
 
 function wd_herkunft_werte()
@@ -669,8 +681,10 @@ function wd_hakenliste($c = null)
 {
     $pf = wd_mqtt_praefix($c);
     $a = array();
+    $ohne = empty(($c === null ? wd_config() : $c)['wbgt_ein']) ? array_flip(wd_wbgt_themen()) : array();     // 0.9.14: WBGT nur mit Haken
     foreach (wd_mqtt_tabelle() as $t => $f) {
-        $a[] = array('thema' => wd_mqtt_thema($pf . '/' . $t), 'name' => wd_gateway_name($pf, $t), 'nc' => $f[1], 'retain' => $f[2], 'pflicht' => $f[3], 'art' => $f[0],
+        if (isset($ohne[$t])) { continue; }
+        $a[] =array('thema' => wd_mqtt_thema($pf . '/' . $t), 'name' => wd_gateway_name($pf, $t), 'nc' => $f[1], 'retain' => $f[2], 'pflicht' => $f[3], 'art' => $f[0],
                      'min' => $f[4], 'max' => $f[5], 'einheit' => $f[6], 'kurz' => $t, 'text' => wd_t('THEMA.' . str_replace('/', '_', $t)));
     }
     return $a;
@@ -867,7 +881,7 @@ function wd_sicherung_lesen($roh, $geltend = null)
     $fehlt = array();
     // Felder, die eine Sicherung von vor 0.9.4 nicht kennen kann, gelten mit ihrer Vorgabe; alles andere muss da sein.
     $wf_felder = wd_felder();
-    foreach (array_keys(wd_vorgaben()) as $k) { if (!array_key_exists($k, $d) && !in_array($k, array('wttr_ein', 'emu_ein', 'emu_nur_ms', 'wu_ein', 'wu_station', 'lox_ein', 'lox_gueltig_min', 'haus_wetter_ein'), true) && !preg_match('/^(haus_pv_ein|pv[1-4]?_[a-z_]+)\z/', $k) && !(isset($wf_felder[$k]) && $wf_felder[$k][1] === 'g')) { $fehlt[] = $k; } }
+    foreach (array_keys(wd_vorgaben()) as $k) { if (!array_key_exists($k, $d) && !in_array($k, array('wttr_ein', 'emu_ein', 'emu_nur_ms', 'wu_ein', 'wu_station', 'lox_ein', 'lox_gueltig_min', 'haus_wetter_ein', 'wbgt_ein', 'wbgt_wind_m'), true) && !preg_match('/^(haus_pv_ein|pv[1-4]?_[a-z_]+)\z/', $k) && !(isset($wf_felder[$k]) && $wf_felder[$k][1] === 'g')) { $fehlt[] = $k; } }
     if ($fehlt) { $mangel[] = sprintf(wd_t('SICH.FEHLEND'), count($fehlt), implode(', ', $fehlt)); }
     if (trim((string) $neu['aktionstoken']) === '') { $mangel[] = wd_t('SICH.TOKEN_LEER'); }
     return array($mangel ? null : $neu, $mangel, $n, $hin);

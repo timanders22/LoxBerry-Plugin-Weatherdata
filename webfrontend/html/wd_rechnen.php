@@ -1,7 +1,7 @@
 <?php
 /**
  * Weatherdata - reine Rechnungen, ohne Netz und ohne Dateien: gefuehlte Temperatur, Schwellen, Prognosefenster,
- * Warnregeln nach Tabelle 6.4 der Entscheidungsvorlage, fertige Saetze.
+ * Warnregeln nach Tabelle 6.4 der Entscheidungsvorlage, fertige Saetze; ab 0.9.14 die WBGT-Schaetzung (Quellen am Abschnitt unten).
  *
  * Formeln selbst geschrieben nach den oeffentlichen Angaben des US National Weather Service:
  * Windchill-Formel 2001 (weather.gov/safety/cold-wind-chill-chart), Hitzeindex nach Rothfusz mit den zwei Korrekturen
@@ -392,4 +392,239 @@ function wd_ansage_gesprochen(array $stand, array $plan, array $einzeln, $heute,
     foreach ($stand['lagen'] as $m) { if ((int) $m['ende'] === 0 ? (int) $m['beginn'] > $jetzt - 172800 : (int) $m['ende'] > $jetzt) { $rest[] = $m; } }
     $stand['lagen'] = $rest;
     return $stand;
+}
+
+/* ===================================================== WBGT-Schaetzung (0.9.14) =====================================================
+ * Wet Bulb Globe Temperature fuer draussen, geschaetzt aus Temperatur, Feuchte, Wind, Globalstrahlung, Luftdruck und Sonnenstand -
+ * die Groesse, die ein Messgeraet mit schwarzer Kugel (etwa Ecowitt WN38) und natuerlichem Feuchtthermometer misst, hier ohne beides.
+ * Modell: Liljegren J.C., Carhart R.A., Lawday P., Tschopp S., Sharp R.: Modeling the Wet Bulb Globe Temperature Using Standard
+ * Meteorological Measurements. J. Occup. Environ. Hyg. 5(10):645-655 (2008), doi:10.1080/15459620802310770.
+ * Formeln und Konstanten selbst geschrieben nach der Referenzumsetzung wbgt.c/wbgt.h (Copyright 2008 UChicago Argonne, LLC;
+ * gelesen am 07.11.2026 im Spiegel github.com/BlackBird-One/wbgt, Ordner src). Abweichungen davon, jede mit Grund:
+ *  - Sonnenstand nach NOAA "General Solar Position Calculations" (gml.noaa.gov/grad/solcalc/solareqns.PDF), ohne Brechungskorrektur;
+ *    die Referenz nimmt einen Almanach-Algorithmus mit Brechung. Unterschied nur nahe am Horizont.
+ *  - Abstand Erde-Sonne als Faktor nach Spencer (1971), Search 2(5):172.
+ *  - Mittelungszeit 0 (Weatherdata fuehrt Augenblickswerte), Stabilitaet nachts mit dT = 0 (kein Messwert fuer die Temperaturschichtung),
+ *    Gelaende laendlich (urban = 0). Beides sind Annahmen und stehen in der Hilfe.
+ * WBGT draussen = 0,7 Tnwb + 0,2 Tg + 0,1 Ta (ISO 7243; so auch calc_wbgt der Referenz).
+ * Stufen: TB MED 507 (Department of the Army, 12.04.2022), Table 3-2, Seite 18: Kategorie 1 (white) 78-81.9 F, 2 (green) 82-84.9 F,
+ * 3 (yellow) 85-87.9 F, 4 (red) 88-89.9 F, 5 (black) > 90 F. Unter 78 F: Stufe 0 (die Tabelle nennt dort keine Kategorie).
+ */
+
+/** Konstanten der Referenzumsetzung (wbgt.h, Abschnitte physical, wick, globe, surface, computational limits). */
+function wd_wbgt_k()
+{
+    static $k = null;
+    if ($k !== null) { return $k; }
+    $k = array('PI' => 3.1415926535897932, 'SOLAR_CONST' => 1367.0, 'STEFANB' => 5.6696E-8, 'Cp' => 1003.5, 'M_AIR' => 28.97, 'M_H2O' => 18.015, 'R_GAS' => 8314.34,
+        'EMIS_WICK' => 0.95, 'ALB_WICK' => 0.4, 'D_WICK' => 0.007, 'L_WICK' => 0.0254, 'EMIS_GLOBE' => 0.95, 'ALB_GLOBE' => 0.05, 'D_GLOBE' => 0.0508,
+        'EMIS_SFC' => 0.999, 'ALB_SFC' => 0.45, 'CZA_MIN' => 0.00873, 'NORMSOLAR_MAX' => 0.85, 'REF_HEIGHT' => 2.0, 'MIN_SPEED' => 0.13,
+        'CONVERGENCE' => 0.02, 'MAX_ITER' => 500);
+    $k['RATIO'] = $k['Cp'] * $k['M_AIR'] / $k['M_H2O'];
+    $k['R_AIR'] = $k['R_GAS'] / $k['M_AIR'];
+    $k['Pr'] = $k['Cp'] / ($k['Cp'] + 1.25 * $k['R_AIR']);
+    return $k;
+}
+
+/** Saettigungsdampfdruck ueber Wasser in hPa (Buck 1981, Faktor 1,004 fuer feuchte Luft), Temperatur in K. */
+function wd_wbgt_esat($tk)
+{
+    $y = ($tk - 273.15) / ($tk - 32.18);
+    return 1.004 * 6.1121 * exp(17.502 * $y);
+}
+
+/** Taupunkt in K aus dem Dampfdruck in hPa (Umkehrung von wd_wbgt_esat). */
+function wd_wbgt_taupunkt_k($e)
+{
+    $z = log($e / (6.1121 * 1.004));
+    return 273.15 + 240.97 * $z / (17.502 - $z);
+}
+
+/** Zaehigkeit der Luft in kg/(m s) (Bird, Stewart, Lightfoot). */
+function wd_wbgt_zaehigkeit($t)
+{
+    $k = wd_wbgt_k();
+    $omega = ($t / 97.0 - 2.9) / 0.4 * (-0.034) + 1.048;
+    return 2.6693E-6 * sqrt($k['M_AIR'] * $t) / (3.617 * 3.617 * $omega);
+}
+
+/** Waermeleitfaehigkeit der Luft in W/(m K). */
+function wd_wbgt_waermeleit($t)
+{
+    $k = wd_wbgt_k();
+    return ($k['Cp'] + 1.25 * $k['R_AIR']) * wd_wbgt_zaehigkeit($t);
+}
+
+/** Diffusionskoeffizient Wasserdampf in Luft in m2/s; Druck in hPa. */
+function wd_wbgt_diffusion($t, $p)
+{
+    $k = wd_wbgt_k();
+    $pc13 = pow(36.4 * 218.0, 1.0 / 3.0);
+    $tc512 = pow(132.0 * 647.3, 5.0 / 12.0);
+    $tc12 = sqrt(132.0 * 647.3);
+    $mm = sqrt(1.0 / $k['M_AIR'] + 1.0 / $k['M_H2O']);
+    return 3.640E-4 * pow($t / $tc12, 2.334) * $pc13 * $tc512 * $mm / ($p / 1013.25) * 1.0E-4;
+}
+
+/** Verdampfungswaerme in J/kg. */
+function wd_wbgt_verdampfung($t) { return (313.15 - $t) / 30.0 * (-71100.0) + 2.4073E6; }
+
+/** Emissionsgrad der Atmosphaere (Oke) aus Temperatur in K und Feuchte als Anteil. */
+function wd_wbgt_emis_atm($t, $rh) { return 0.575 * pow($rh * wd_wbgt_esat($t), 0.143); }
+
+/** Waermeuebergang Kugel und Zylinder (Feuchtdocht) in W/(m2 K). Wind unter 0,13 m/s zaehlt als 0,13 m/s. */
+function wd_wbgt_h_kugel($d, $t, $p, $v)
+{
+    $k = wd_wbgt_k();
+    $re = max($v, $k['MIN_SPEED']) * ($p * 100.0 / ($k['R_AIR'] * $t)) * $d / wd_wbgt_zaehigkeit($t);
+    return (2.0 + 0.6 * sqrt($re) * pow($k['Pr'], 0.3333)) * wd_wbgt_waermeleit($t) / $d;
+}
+function wd_wbgt_h_zylinder($d, $t, $p, $v)
+{
+    $k = wd_wbgt_k();
+    $re = max($v, $k['MIN_SPEED']) * ($p * 100.0 / ($k['R_AIR'] * $t)) * $d / wd_wbgt_zaehigkeit($t);
+    return 0.281 * pow($re, 0.6) * pow($k['Pr'], 0.44) * wd_wbgt_waermeleit($t) / $d;
+}
+
+/** Kugeltemperatur in C; $ta in K, $rh Anteil, $p hPa, $v m/s in 2 m, $s W/m2, $fdir Direktanteil, $cza Kosinus Zenitwinkel. null ohne Konvergenz. */
+function wd_wbgt_kugel($ta, $rh, $p, $v, $s, $fdir, $cza)
+{
+    $k = wd_wbgt_k();
+    $alt = $ta;
+    $strahl = $fdir > 0 ? $fdir * (1.0 / (2.0 * $cza) - 1.0) : 0.0;     // ohne Direktanteil faellt der Term weg, auch bei Sonne unter dem Horizont
+    for ($i = 0; $i < $k['MAX_ITER']; $i++) {
+        $h = wd_wbgt_h_kugel($k['D_GLOBE'], 0.5 * ($alt + $ta), $p, $v);
+        $x = 0.5 * (wd_wbgt_emis_atm($ta, $rh) * pow($ta, 4) + $k['EMIS_SFC'] * pow($ta, 4)) - $h / ($k['STEFANB'] * $k['EMIS_GLOBE']) * ($alt - $ta)
+           + $s / (2.0 * $k['STEFANB'] * $k['EMIS_GLOBE']) * (1.0 - $k['ALB_GLOBE']) * ($strahl + 1.0 + $k['ALB_SFC']);
+        if ($x <= 0) { return null; }
+        $neu = pow($x, 0.25);
+        if (abs($neu - $alt) < $k['CONVERGENCE']) { return $neu - 273.15; }
+        $alt = 0.9 * $alt + 0.1 * $neu;
+    }
+    return null;
+}
+
+/** Natuerliche Feuchttemperatur in C ($rad = 1) bzw. psychrometrische ($rad = 0). Eingaenge wie wd_wbgt_kugel. */
+function wd_wbgt_feucht($ta, $rh, $p, $v, $s, $fdir, $cza, $rad)
+{
+    $k = wd_wbgt_k();
+    $eair = $rh * wd_wbgt_esat($ta);
+    $alt = wd_wbgt_taupunkt_k($eair);
+    $dl = 0.25 * $k['D_WICK'] / $k['L_WICK'];
+    $direkt = $fdir > 0 ? $fdir * (tan(acos(max(-1.0, min(1.0, $cza)))) / $k['PI'] + $dl) : 0.0;
+    for ($i = 0; $i < $k['MAX_ITER']; $i++) {
+        $tref = 0.5 * ($alt + $ta);
+        $h = wd_wbgt_h_zylinder($k['D_WICK'], $tref, $p, $v);
+        $fatm = $k['STEFANB'] * $k['EMIS_WICK'] * (0.5 * (wd_wbgt_emis_atm($ta, $rh) * pow($ta, 4) + $k['EMIS_SFC'] * pow($ta, 4)) - pow($alt, 4))
+              + (1.0 - $k['ALB_WICK']) * $s * ((1.0 - $fdir) * (1.0 + $dl) + $direkt + $k['ALB_SFC']);
+        $ew = wd_wbgt_esat($alt);
+        $sc = wd_wbgt_zaehigkeit($tref) / (($p * 100.0 / ($k['R_AIR'] * $tref)) * wd_wbgt_diffusion($tref, $p));
+        $neu = $ta - wd_wbgt_verdampfung($tref) / $k['RATIO'] * ($ew - $eair) / ($p - $ew) * pow($k['Pr'] / $sc, 0.56) + ($fatm / $h) * $rad;
+        if (abs($neu - $alt) < $k['CONVERGENCE']) { return $neu - 273.15; }
+        $alt = 0.9 * $alt + 0.1 * $neu;
+    }
+    return null;
+}
+
+/** Sonnenstand nach NOAA. Rueckgabe array(Kosinus des Zenitwinkels, Abstandsfaktor 1/r2 nach Spencer). $ts Unix-Zeit, Rechnung in UTC. */
+function wd_wbgt_sonne($ts, $lat, $lon)
+{
+    $ts = (int) $ts;
+    $jahr = (int) gmdate('Y', $ts);
+    $tage = ($jahr % 4 === 0 && ($jahr % 100 !== 0 || $jahr % 400 === 0)) ? 366 : 365;
+    $doy = (int) gmdate('z', $ts) + 1;
+    $std = (int) gmdate('G', $ts); $min = (int) gmdate('i', $ts); $sek = (int) gmdate('s', $ts);
+    $g = 2 * M_PI / $tage * ($doy - 1 + ($std - 12) / 24.0);
+    $eqt = 229.18 * (0.000075 + 0.001868 * cos($g) - 0.032077 * sin($g) - 0.014615 * cos(2 * $g) - 0.040849 * sin(2 * $g));
+    $decl = 0.006918 - 0.399912 * cos($g) + 0.070257 * sin($g) - 0.006758 * cos(2 * $g) + 0.000907 * sin(2 * $g) - 0.002697 * cos(3 * $g) + 0.00148 * sin(3 * $g);
+    $tst = $std * 60 + $min + $sek / 60.0 + $eqt + 4 * (float) $lon;
+    $ha = deg2rad($tst / 4.0 - 180.0);
+    $la = deg2rad((float) $lat);
+    $cza = sin($la) * sin($decl) + cos($la) * cos($decl) * cos($ha);
+    $g0 = 2 * M_PI * ($doy - 1) / $tage;
+    $e0 = 1.000110 + 0.034221 * cos($g0) + 0.001280 * sin($g0) + 0.000719 * cos(2 * $g0) + 0.000077 * sin(2 * $g0);
+    return array(max(-1.0, min(1.0, $cza)), $e0);
+}
+
+/** Stabilitaetsklasse 1 bis 6 (stab_srdt der Referenz): tags nach Wind und Strahlung, nachts nach Wind und Temperaturschichtung dT. */
+function wd_wbgt_stabilitaet($tag, $v, $s, $dt)
+{
+    $t = array(array(1, 1, 2, 4, 0, 5, 6, 0), array(1, 2, 3, 4, 0, 5, 6, 0), array(2, 2, 3, 4, 0, 4, 4, 0), array(3, 3, 4, 4, 0, 0, 0, 0), array(3, 4, 4, 4, 0, 0, 0, 0));
+    if ($tag) {
+        $j = $s >= 925 ? 0 : ($s >= 675 ? 1 : ($s >= 175 ? 2 : 3));
+        $i = $v >= 6 ? 4 : ($v >= 5 ? 3 : ($v >= 3 ? 2 : ($v >= 2 ? 1 : 0)));
+    } else {
+        $j = $dt >= 0 ? 6 : 5;
+        $i = $v >= 2.5 ? 2 : ($v >= 2 ? 1 : 0);
+    }
+    return $t[$i][$j];
+}
+
+/** Wind auf 2 m Hoehe (est_wind_speed der Referenz, laendlich): Potenzgesetz je Stabilitaetsklasse, nie unter 0,13 m/s. */
+function wd_wbgt_wind_2m($v, $hoehe, $klasse)
+{
+    $k = wd_wbgt_k();
+    $ex = array(0.07, 0.07, 0.10, 0.15, 0.35, 0.55);
+    if ($klasse < 1 || $klasse > 6) { return null; }
+    return max($v * pow($k['REF_HEIGHT'] / $hoehe, $ex[$klasse - 1]), $k['MIN_SPEED']);
+}
+
+/**
+ * Die Schaetzung. $ta_c C, $rf Prozent, $wind_ms m/s in $hoehe m, $s W/m2 (Globalstrahlung waagerecht), $p hPa, $cza und $e0 aus wd_wbgt_sonne().
+ * Rueckgabe array('wbgt','tg','tnwb','fdir','v2m','s') oder null, wenn ein Eingang fehlt, ausserhalb liegt oder die Rechnung nicht konvergiert.
+ */
+function wd_wbgt($ta_c, $rf, $wind_ms, $hoehe, $s, $p, $cza, $e0)
+{
+    foreach (array($ta_c, $rf, $wind_ms, $hoehe, $s, $p, $cza, $e0) as $x) { if (!is_numeric($x) || !is_finite((float) $x)) { return null; } }
+    $ta_c = (float) $ta_c; $rf = (float) $rf; $v = (float) $wind_ms; $hoehe = (float) $hoehe; $s = (float) $s; $p = (float) $p; $cza = (float) $cza;
+    if ($ta_c < -60 || $ta_c > 60 || $rf <= 0 || $rf > 100 || $v < 0 || $v > 80 || $hoehe < 1 || $hoehe > 100 || $s < 0 || $s > 2000 || $p < 500 || $p > 1100) { return null; }
+    $k = wd_wbgt_k();
+    $ta = $ta_c + 273.15; $rh = $rf / 100.0;
+    // Direktanteil und Begrenzung der Strahlung (calc_solar_parameters der Referenz)
+    $toa = $cza < $k['CZA_MIN'] ? 0.0 : $k['SOLAR_CONST'] * $cza * (float) $e0;
+    $fdir = 0.0;
+    if ($toa > 0) {
+        $n = min($s / $toa, $k['NORMSOLAR_MAX']);
+        $s = $n * $toa;
+        if ($n > 0) { $fdir = max(min(exp(3.0 - 1.34 * $n - 1.65 / $n), 0.9), 0.0); }
+    }
+    if ($hoehe != $k['REF_HEIGHT']) {
+        $v = wd_wbgt_wind_2m($v, $hoehe, wd_wbgt_stabilitaet($cza > 0, $v, $s, 0.0));
+        if ($v === null) { return null; }
+    }
+    $tg = wd_wbgt_kugel($ta, $rh, $p, $v, $s, $fdir, $cza);
+    $tn = wd_wbgt_feucht($ta, $rh, $p, $v, $s, $fdir, $cza, 1);
+    if ($tg === null || $tn === null) { return null; }
+    return array('wbgt' => 0.7 * $tn + 0.2 * $tg + 0.1 * $ta_c, 'tg' => $tg, 'tnwb' => $tn, 'fdir' => $fdir, 'v2m' => $v, 's' => $s);
+}
+
+/** Stufe 0 bis 5 nach TB MED 507, Table 3-2 (Grenzen in Fahrenheit, wortgetreu). null ohne Wert. */
+function wd_wbgt_stufe($wbgt_c)
+{
+    if ($wbgt_c === null || !is_numeric($wbgt_c)) { return null; }
+    $f = (float) $wbgt_c * 9 / 5 + 32;
+    if ($f < 78.0) { return 0; }
+    if ($f < 82.0) { return 1; }
+    if ($f < 85.0) { return 2; }
+    if ($f < 88.0) { return 3; }
+    if ($f < 90.0) { return 4; }
+    return 5;
+}
+
+/**
+ * Aus den Jetzt-Werten des Plugins. $pos = array(lat, lon) oder null. Rechnet nur, wenn Temperatur, Feuchte, Wind und Strahlung da sind;
+ * fehlt der Luftdruck, gilt 1013,25 hPa (vermerkt in druck_norm). Rueckgabe immer ein Feld mit ok 0/1, bei ok 0 der Grund.
+ */
+function wd_wbgt_jetzt(array $jw, $pos, $hoehe, $jetzt)
+{
+    $fehlt = array();
+    foreach (array('temp_c', 'rf_pct', 'wind_kmh', 'strahlung_wm2') as $g) { if (!isset($jw[$g]) || !is_numeric($jw[$g])) { $fehlt[] = $g; } }
+    if (!is_array($pos)) { $fehlt[] = 'standort'; }
+    if ($fehlt) { return array('ok' => 0, 'grund' => implode(',', $fehlt)); }
+    $dn = !isset($jw['druck_hpa']) || !is_numeric($jw['druck_hpa']);
+    list($cza, $e0) = wd_wbgt_sonne($jetzt, $pos[0], $pos[1]);
+    $r = wd_wbgt($jw['temp_c'], $jw['rf_pct'], (float) $jw['wind_kmh'] / 3.6, $hoehe, $jw['strahlung_wm2'], $dn ? 1013.25 : $jw['druck_hpa'], $cza, $e0);
+    if ($r === null) { return array('ok' => 0, 'grund' => 'bereich'); }
+    $s = wd_wbgt_stufe(round($r['wbgt'], 1));     // Stufe aus dem gezeigten Wert, damit beide zusammenpassen
+    return array('ok' => 1, 'wbgt' => round($r['wbgt'], 1), 'tg' => round($r['tg'], 1), 'tnwb' => round($r['tnwb'], 1), 'stufe' => $s, 'druck_norm' => $dn ? 1 : 0, 'cza' => round($cza, 3));
 }

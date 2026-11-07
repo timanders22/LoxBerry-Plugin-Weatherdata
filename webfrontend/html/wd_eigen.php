@@ -243,6 +243,23 @@ function wd_gefuehlt_herkunft(array $st)
     return sprintf(wd_t('WERTE.GEFUEHLT_HER'), wd_herkunft_name($st['herkunft']['temp_c'] ?? ''), $a);
 }
 
+/** 0.9.14: Herkunft der WBGT-Schaetzung fuer den Reiter Werte: aus welchen Quellen, ob der Luftdruck angenommen ist, sonst warum keine Aussage. */
+function wd_wbgt_herkunft($wb)
+{
+    if (!is_array($wb) || !isset($wb['ok'])) { return wd_t('WERTE.WBGT_NOCH'); }
+    if (!empty($wb['ok'])) {
+        $n = array(); foreach ((array) ($wb['her'] ?? array()) as $h) { $n[] = wd_herkunft_name($h); }
+        return sprintf(wd_t('WERTE.WBGT_HER'), implode(', ', array_unique($n))) . (!empty($wb['druck_norm']) ? ' ' . wd_t('WERTE.WBGT_DRUCK') : '');
+    }
+    $g = array();
+    foreach (explode(',', (string) ($wb['grund'] ?? '')) as $k) {
+        if ($k === 'standort') { $g[] = wd_t('WERTE.WBGT_STANDORT'); }
+        elseif ($k === 'bereich') { $g[] = wd_t('WERTE.WBGT_BEREICH'); }
+        elseif ($k !== '') { $g[] = wd_t('THEMA.jetzt_' . $k); }
+    }
+    return sprintf(wd_t('WERTE.WBGT_OHNE'), $g ? implode(', ', $g) : '-');
+}
+
 /**
  * Schwellen fuer "deutlich anders" je Groesse. null = nicht markieren: Windrichtung und "regnet" sind keine Betraege.
  * 0.9.8: Druck 3 hPa, nur gegen pressure_msl von Open-Meteo (dienst_druck_msl); Stationen zeigen meist den auf Meereshoehe umgerechneten
