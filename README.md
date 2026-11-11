@@ -109,6 +109,12 @@ Dieses Plugin enthält keinen fremden Code. Es liest:
 
 Die Unwetterzentrale ist wegen ihrer Bedingungen bewusst nicht eingebaut. **WetterOnline ist ebenfalls nicht eingebaut, anders als bei Weather4Lox:** Es gibt keine öffentlich dokumentierte Schnittstelle; Weather4Lox nutzt Adressen, die für die WetterOnline-App gedacht sind. Die AGB (Fassung vom 24.02.2025, Ziffer 2) untersagen die unberechtigte Vervielfältigung und Speicherung der Inhalte und verweisen auf eine Anfrage vorab. Das Antwortformat des Emulators ist am öffentlichen Quelltext von Weather4Lox (Apache-2.0, Michael Schlenstedt, Jan Wachsmuth) abgelesen; es ist keine Zeile daraus übernommen. „Loxone“ ist eine Marke ihres Inhabers. Lizenz dieses Plugins: MIT.
 
+## Neu in 0.9.16
+
+- **Konfiguration wird vervollständigt:** Fehlen in `weatherdata.json` Einstellungen, die eine neuere Fassung mitbringt, trägt der Minutenlauf (`bin/wd_takt.php`) sie jetzt einmal mit ihrer Vorgabe in die Datei ein; die Zweitschrift zieht mit. Das Protokoll nennt die ergänzten Namen in einer Zeile, nie die Werte. Bisher ergänzte das Plugin fehlende Einstellungen nur beim Lesen; in die Datei kamen sie erst beim nächsten Speichern im Formular. Die Vorgaben sind die Werte, die das Plugin bisher ohnehin angenommen hat; am Verhalten ändert sich nichts. Ein nie gespeicherter Block der Sprachausgabe wird als leerer Block eingetragen und gilt damit weiter als „nie gesetzt“, also ab Werk an.
+- Geschrieben werden die Werte, die in der Datei stehen, plus die fehlenden Vorgaben. Unbekannte Schlüssel bleiben stehen, geschrieben wird nur, wenn etwas fehlt. Eine fehlende, leere oder beschädigte Datei und eine Datei ohne Aktionstoken werden nicht angefasst, ebenso wenig während einer Aktualisierung; das bleibt Sache der Selbstheilung. Gemessen ist das im Prüfstand unter PHP 7.4 und 8.4 auf dem Arbeitsrechner, an einer Datei in der Gestalt der Fassung 0.9.12, nicht am Gerät.
+- Leere Objekte (`{}`) in der Datei bleiben beim Vervollständigen erhalten, auch verschachtelte und solche unter unbekannten Schlüsseln; sie werden dabei nicht zu leeren Listen (`[]`).
+
 ## Neu in 0.9.15
 
 - Gemeinsames Sprachmodul 1.4.3: Als LoxBerry-Wurzel aus `LBHOMEDIR` gilt für die Sprachausgabe nur noch ein Ordner mit `config/plugins`, `data/plugins` und `config/system/general.json`; bis 1.4.2 genügte `config/system`, und ein Prüfstand oder Rest mit diesem Ordner wurde wie ein LoxBerry gelesen. Auf einem LoxBerry ändert sich nichts.

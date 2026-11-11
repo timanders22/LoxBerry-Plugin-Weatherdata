@@ -338,6 +338,82 @@ function wd_token_sichern()
     return $c;
 }
 
+/** Leere Objekte des Rohtextes ($o, json_decode ohne true) im Feld $a wieder als Objekt fuehren (11.11.2026, Muster
+ *  bw_json_leere_objekte() aus Bewaesserung 0.9.56), damit json_encode() sie als {} und nicht als [] schreibt - oben,
+ *  verschachtelt und unter fremden Schluesseln. Nur fuer wd_config_vervollstaendigen(); das Speichern im Formular
+ *  bleibt, wie es ist. */
+function wd_json_leere_objekte($a, $o)
+{
+    if (!is_array($a)) { return $a; }
+    if (is_object($o)) {
+        if (!get_object_vars($o) && $a === array()) { return new stdClass(); }
+        foreach ($a as $k => $v) {
+            $ks = (string) $k;
+            if (is_array($v) && property_exists($o, $ks)) { $a[$k] = wd_json_leere_objekte($v, $o->$ks); }
+        }
+    } elseif (is_array($o)) {
+        foreach ($a as $k => $v) {
+            if (is_array($v) && array_key_exists($k, $o)) { $a[$k] = wd_json_leere_objekte($v, $o[$k]); }
+        }
+    }
+    return $a;
+}
+
+/**
+ * Fehlende Einstellungen EINMAL mit ihrer Vorgabe in weatherdata.json schreiben (seit 0.9.16; Regeln/05, Bauform
+ * Docker NG 1.3.7; Entscheidung des Hausherrn vom 11.11.2026). Bis 0.9.15 ergaenzte wd_config() fehlende Schluessel
+ * nur im Speicher; in die Datei kamen sie erst beim naechsten Speichern im Formular. Aufgerufen vom Minutentakt
+ * (bin/wd_takt.php) VOR wd_lauf(), also vor dem ersten Lesen der Konfiguration.
+ *
+ *  - nur mit LoxBerry-Wurzel und nicht waehrend einer Aktualisierung (Marke data/plugins/<ordner>.upgrade_laeuft,
+ *    dieselbe Regel wie wd_gesundheit(): juenger als eine Stunde gilt; ist ihr Alter nicht feststellbar, gilt sie);
+ *  - nur an einer Datei mit Merkwort: ein JSON-Objekt mit einem nicht leeren Aktionstoken in der Form, die
+ *    wd_wert_pruefen() annimmt; eine fehlende, leere, kaputte oder tokenlose Datei ist Sache von wd_selbstheilung();
+ *  - geschrieben werden die WERTE AUS DER DATEI plus die fehlenden Vorgaben, nicht das, was wd_config() daraus macht;
+ *    fremde Schluessel bleiben stehen; nur die Schluessel aus wd_vorgaben(), die das Speichern im Formular ebenfalls
+ *    schreibt;
+ *  - Lese-Regel: ein fehlender oder leerer Block tts gilt in wd_config() als Werkblock ("nie gesetzt = ab Werk EIN").
+ *    Eingetragen wird die Vorgabe (leerer Block) - so bleibt er "nie gesetzt", und wd_config() liefert danach
+ *    dasselbe wie vorher. Weitere Uebergangsregeln fuer Bestandsdateien hat wd_config() nicht;
+ *  - geschrieben wird nur, wenn etwas fehlt; Weg wie beim Speichern (wd_config_speichern(), 0600, danach
+ *    wd_zweitschrift()); eine Protokollzeile mit den Namen, nie mit Werten.
+ *
+ * Rueckgabe: die Namen der eingetragenen Schluessel; leer, wenn nichts geschrieben wurde.
+ */
+function wd_config_vervollstaendigen()
+{
+    $p = wd_paths();
+    if ($p['lbhome'] === '') { return array(); }
+    $m = $p['datadir'] . '.upgrade_laeuft';
+    clearstatcache(true, $m);
+    if (file_exists($m)) {
+        $mt = @filemtime($m);
+        if ($mt === false || time() - (int) $mt < 3600) { return array(); }
+    }
+    clearstatcache(true, $p['config']);
+    if (!is_file($p['config']) || !is_readable($p['config'])) { return array(); }
+    $roh = @file_get_contents($p['config']);
+    if (!is_string($roh) || substr(ltrim($roh), 0, 1) !== '{') { return array(); }
+    $datei = json_decode($roh, true);
+    if (!wd_hat_inhalt($datei) || !preg_match('/^[A-Za-z0-9]{1,64}\z/', $datei['aktionstoken'])) { return array(); }
+    // Ein leeres Objekt der Datei ({}) bliebe nach json_decode(..., true) ein leeres Feld und kaeme beim Schreiben
+    // als [] zurueck - die leeren Objekte des Rohtextes bleiben Objekte (11.11.2026).
+    $datei = wd_json_leere_objekte($datei, json_decode($roh));
+    $fehlend = array();
+    foreach (wd_vorgaben() as $k => $w) {
+        if (!array_key_exists($k, $datei)) {
+            $datei[$k] = $w;
+            $fehlend[] = (string) $k;
+        }
+    }
+    if (!$fehlend) { return array(); }
+    if (!wd_config_speichern($datei)) { return array(); }
+    wd_zweitschrift($datei);
+    /* Ohne Anzahl: wd_log_sauber() ersetzt jeden Standortwert im Text durch ***, eine Zahl wie "12" koennte einer sein. */
+    wd_log('Konfiguration vervollstaendigt, fehlende Einstellungen mit der Vorgabe eingetragen: ' . implode(', ', $fehlend) . '.');
+    return $fehlend;
+}
+
 function wd_datei_schreiben($pfad, $inhalt, $modus = 0600)
 {
     $inhalt = (string) $inhalt;

@@ -38,4 +38,13 @@ if (isset($argv[1]) && $argv[1] === '--selbsttest') {
     exit($wd_s ? 1 : 0);
 }
 
+/* 0.9.16 (Regeln/05): fehlende Einstellungen einmal mit ihrer Vorgabe in weatherdata.json eintragen - vor wd_lauf(),
+ * also vor dem ersten Lesen der Konfiguration; nicht waehrend einer Aktualisierung (Marke, siehe
+ * wd_config_vervollstaendigen()). Schreibt nur, wenn etwas fehlt. Ein Fehler hier haelt den Lauf nicht auf. */
+try {
+    wd_config_vervollstaendigen();
+} catch (Throwable $wd_vv) {
+    wd_log_einmal('vervollstaendigen', 'Konfiguration vervollstaendigen abgebrochen (' . get_class($wd_vv) . ') - der Lauf ist davon nicht betroffen.');
+}
+
 wd_lauf(false);
