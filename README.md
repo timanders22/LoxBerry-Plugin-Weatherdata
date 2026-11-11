@@ -109,6 +109,10 @@ Dieses Plugin enthält keinen fremden Code. Es liest:
 
 Die Unwetterzentrale ist wegen ihrer Bedingungen bewusst nicht eingebaut. **WetterOnline ist ebenfalls nicht eingebaut, anders als bei Weather4Lox:** Es gibt keine öffentlich dokumentierte Schnittstelle; Weather4Lox nutzt Adressen, die für die WetterOnline-App gedacht sind. Die AGB (Fassung vom 24.02.2025, Ziffer 2) untersagen die unberechtigte Vervielfältigung und Speicherung der Inhalte und verweisen auf eine Anfrage vorab. Das Antwortformat des Emulators ist am öffentlichen Quelltext von Weather4Lox (Apache-2.0, Michael Schlenstedt, Jan Wachsmuth) abgelesen; es ist keine Zeile daraus übernommen. „Loxone“ ist eine Marke ihres Inhabers. Lizenz dieses Plugins: MIT.
 
+## Neu in 0.9.15
+
+- Gemeinsames Sprachmodul 1.4.3: Als LoxBerry-Wurzel aus `LBHOMEDIR` gilt für die Sprachausgabe nur noch ein Ordner mit `config/plugins`, `data/plugins` und `config/system/general.json`; bis 1.4.2 genügte `config/system`, und ein Prüfstand oder Rest mit diesem Ordner wurde wie ein LoxBerry gelesen. Auf einem LoxBerry ändert sich nichts.
+
 ## Neu in 0.9.14
 
 - **Hitzebelastung draußen als Schätzung (WBGT), ab Werk aus.** Die Wet Bulb Globe Temperature fasst Lufttemperatur, Luftfeuchte, Wind und Sonne zu einer Zahl zusammen, nach der sich Arbeit und Sport im Freien richten. Gemessen wird sie mit einer schwarzen Kugel und einem feuchten Thermometer, etwa mit dem Ecowitt WN38. Weatherdata misst sie nicht, sondern rechnet sie aus den Werten, die es ohnehin hat: Temperatur, Feuchte, Wind und Strahlung aus der Tabelle „Jetzt“, dazu Luftdruck und Sonnenstand. Das Rechenverfahren stammt aus einer Veröffentlichung von Liljegren und anderen (2008); es schätzt auch die Temperatur der Kugel und des feuchten Thermometers.
