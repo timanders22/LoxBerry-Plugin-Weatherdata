@@ -903,14 +903,34 @@ function wd_bausteinliste($c = null)
 
 /* ===================================================== Sicherung ===================================================== */
 
-/** Was in die Sicherungsdatei kommt: Dienstschluessel nie, Sprechtoken nie. Das Aktionstoken bleibt, es gehoert zur Einrichtung (Hinweis am Knopf). */
+/** Was in die Sicherungsdatei kommt: alle Einstellungen mit dem Aktionstoken und, seit 0.9.17, den Schluesseln der
+ *  Dienste (Art 'g' in wd_felder(); Entscheidung des Hausherrn 12.11.2026, CLAUDE.md §9 - ohne sie ist die Sicherung
+ *  nach einem Umzug wertlos). Von 0.9.6 bis 0.9.16 blieben die Schluessel draussen. Sprechtoken nie (Nr. 36 b), der
+ *  Vermerk ansage_token_herkunft nie, das Formularmerkmal steht nicht in der Konfiguration (wd_merkwort()). */
 function wd_sicherung_stand()
 {
     $v = wd_config();
     unset($v['ansage_token_herkunft']);
-    foreach (wd_felder() as $k => $f) { if ($f[1] === 'g') { unset($v[$k]); } }
     if (isset($v['tts']) && is_array($v['tts'])) { $v['tts'] = ansage_sicherung_bereinigen($v['tts']); }
     return $v;
+}
+
+/** 0.9.17: welche Schluessel der Dienste eine Sicherungsdatei tragen MUSS, wenn sie ueberhaupt einen traegt. Bis
+ *  0.9.5 schrieb die Sicherung die ganze Konfiguration mit den sechs Schluesseln om_apikey bis mb_key (gemessen am
+ *  Handler der Ordner 0.9.1 und 0.9.5; 0.9.0 nicht gemessen), von 0.9.6 bis 0.9.16 keinen, ab 0.9.17 alle. wu_key kam
+ *  mit Wunderground in 0.9.7 (zusammen mit wu_ein und wu_station): eine Datei, die wu_station kennt und Schluessel
+ *  traegt, stammt aus 0.9.17 oder spaeter und muss ihn tragen; eine Datei bis 0.9.5 kennt ihn nicht. Gemessen an
+ *  wd_felder() der Ordner 0.9.1 bis 0.9.16. */
+function wd_sicherung_schluessel_pflicht($d)
+{
+    $alle = array();
+    foreach (wd_felder() as $k => $f) { if ($f[1] === 'g') { $alle[] = $k; } }
+    $da = array();
+    foreach ($alle as $k) { if (array_key_exists($k, $d)) { $da[] = $k; } }
+    if (!$da) { return array($alle, array()); }     // Fassung 0.9.6 bis 0.9.16: keiner Pflicht
+    $pflicht = array_values(array_diff($alle, array('wu_key')));
+    if (array_key_exists('wu_station', $d) || array_key_exists('wu_ein', $d)) { $pflicht[] = 'wu_key'; }
+    return array($alle, $pflicht);
 }
 
 /** Liest eine Sicherungsdatei. Rueckgabe: array(neuer Stand oder null, Mangel, Anzahl, Hinweise). Eine halb gueltige Datei aendert nichts. */
@@ -920,9 +940,12 @@ function wd_sicherung_lesen($roh, $geltend = null)
     $d = json_decode((string) $roh, true);
     if (!is_array($d) || ($d !== array() && array_keys($d) === range(0, count($d) - 1))) { return array(null, array(wd_t('SICH.KEIN_JSON')), 0, array()); }
     $neu = wd_vorgaben();
-    // Fehlt ein Dienstschluessel in der Datei (ab 0.9.6 immer), bleibt der geltende. Eine aeltere Datei mit Schluessel wird weiter angenommen.
+    // Fehlt ein Dienstschluessel in der Datei (0.9.6 bis 0.9.16 immer), bleibt der geltende. Eine Datei mit Schluesseln
+    // (bis 0.9.5, ab 0.9.17) setzt die ihren; ob sie vollstaendig ist, prueft wd_sicherung_schluessel_pflicht() unten.
     foreach (wd_felder() as $k => $f) { if ($f[1] === 'g' && is_array($geltend) && isset($geltend[$k]) && is_string($geltend[$k])) { $neu[$k] = $geltend[$k]; } }
     $n = 0;
+    $wf_felder_g = array();
+    foreach (wd_felder() as $k => $f) { if ($f[1] === 'g') { $wf_felder_g[$k] = true; } }
     foreach ($d as $k => $w) {
         $k = (string) $k;
         if ($k !== '' && $k[0] === '_') { continue; }
@@ -950,6 +973,15 @@ function wd_sicherung_lesen($roh, $geltend = null)
         if (!array_key_exists($k, $neu)) { $mangel[] = sprintf(wd_t('SICH.FREMD'), $k); continue; }
         list($ok, $wert, $gr) = wd_wert_pruefen($k, $w);
         if (!$ok) { $mangel[] = sprintf(wd_t('SICH.WERT'), $k, $gr); continue; }
+        /* 0.9.17, Entscheidung des Hausherrn 12.11.2026: ein LEERER Schluessel der Dienste in der Datei heisst "nicht
+         * gesichert" und ueberschreibt keinen hier eingetragenen (oben aus $geltend vorbelegt) - der bleibt, und der
+         * Hinweis nennt ihn mit Namen, nie mit Wert. Ist er hier auch leer, bleibt er leer, ohne Hinweis. Geleert wird
+         * ein Schluessel nur im Formular (Haken "loeschen"). */
+        if (isset($wf_felder_g[$k]) && $wert === '') {
+            if (is_string($neu[$k]) && $neu[$k] !== '') { $hin[] = sprintf(wd_t('SICH.SCHLUESSEL_LEER'), $k); }
+            $n++;
+            continue;
+        }
         $neu[$k] = $wert;
         $n++;
     }
@@ -959,6 +991,23 @@ function wd_sicherung_lesen($roh, $geltend = null)
     $wf_felder = wd_felder();
     foreach (array_keys(wd_vorgaben()) as $k) { if (!array_key_exists($k, $d) && !in_array($k, array('wttr_ein', 'emu_ein', 'emu_nur_ms', 'wu_ein', 'wu_station', 'lox_ein', 'lox_gueltig_min', 'haus_wetter_ein', 'wbgt_ein', 'wbgt_wind_m'), true) && !preg_match('/^(haus_pv_ein|pv[1-4]?_[a-z_]+)\z/', $k) && !(isset($wf_felder[$k]) && $wf_felder[$k][1] === 'g')) { $fehlt[] = $k; } }
     if ($fehlt) { $mangel[] = sprintf(wd_t('SICH.FEHLEND'), count($fehlt), implode(', ', $fehlt)); }
+    /* 0.9.17: die Schluessel der Dienste (wd_sicherung_schluessel_pflicht()). Traegt die Datei keinen, stammt sie aus
+     * 0.9.6 bis 0.9.16: die hier eingetragenen bleiben (oben vorbelegt), und der Hinweis nennt die Namen, nie Werte.
+     * Traegt sie einen, muss sie alle tragen, die es zu ihrer Fassung gab - sonst ist sie unvollstaendig und aendert
+     * nichts. Ein leerer Schluessel in der Datei heisst "nicht gesichert" (siehe die Schleife oben). */
+    list($wd_g_alle, $wd_g_pflicht) = wd_sicherung_schluessel_pflicht($d);
+    $wd_g_fehlt = array();
+    foreach ($wd_g_pflicht as $k) { if (!array_key_exists($k, $d)) { $wd_g_fehlt[] = $k; } }
+    if ($wd_g_fehlt) { $mangel[] = sprintf(wd_t('SICH.SCHLUESSEL_FEHLEN'), implode(', ', $wd_g_fehlt)); }
+    $wd_g_behalten = array();
+    foreach ($wd_g_alle as $k) {
+        if (!array_key_exists($k, $d) && is_string($neu[$k]) && $neu[$k] !== '') { $wd_g_behalten[] = $k; }
+    }
+    if (!$wd_g_pflicht) {
+        $hin[] = sprintf(wd_t('SICH.SCHLUESSEL_ALT'), $wd_g_behalten ? implode(', ', $wd_g_behalten) : wd_t('SICH.SCHLUESSEL_KEINER'));
+    } elseif ($wd_g_behalten) {
+        $hin[] = sprintf(wd_t('SICH.SCHLUESSEL_BLEIBT'), implode(', ', $wd_g_behalten));
+    }
     if (trim((string) $neu['aktionstoken']) === '') { $mangel[] = wd_t('SICH.TOKEN_LEER'); }
     return array($mangel ? null : $neu, $mangel, $n, $hin);
 }

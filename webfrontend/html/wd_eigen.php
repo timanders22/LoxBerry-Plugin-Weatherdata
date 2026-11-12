@@ -5,7 +5,8 @@
  * Rangfolge fuer die Werte "jetzt": Station (Weiche, direkt, Empfang) > Wunderground (eigene Station ueber die Cloud) > Loxone > Prognose.
  * Begruendung: Station und Wunderground liefern einen zusammengehoerigen Satz einer Wetterstation, Loxone einzelne Fuehler; ist ein Wert
  * bei der hoeheren Stufe leer, greift je Wert die naechste. Die Vorhersage wird von keiner dieser Quellen beruehrt.
- * Beides ist ab Werk aus. Der Wunderground-Schluessel geht in keine Sicherung, kein Protokoll, keine Ausgabe.
+ * Beides ist ab Werk aus. Der Wunderground-Schluessel geht in kein Protokoll und keine Ausgabe; in die Sicherungsdatei
+ * seit 0.9.17 wie alle Schluessel der Dienste (Entscheidung des Hausherrn 12.11.2026, wd_sicherung_stand()).
  */
 
 /* ------------------------------------ Loxone: Werte vom Miniserver ------------------------------------ */
