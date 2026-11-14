@@ -119,10 +119,12 @@ if ($wf_post && isset($_POST['wd_zurueck'])) {
 // ---------- Testansage, Dienstprobe, Warnzelle, Protokoll, Token ----------
 if ($wf_post && (isset($_POST['ansage_test']) || isset($_POST['ansage_test_ziel']))) {
     $wf_c = wd_config(); $wf_k = wd_ansage_k();
+    // Uebernommene Sprechtoken wie bei der echten Ansage (wd_ansagen()) aufloesen, nur im Speicher.
+    $wf_b = ansage_token_fuer_lauf($wf_c['tts'], isset($wf_c['ansage_token_herkunft']) ? $wf_c['ansage_token_herkunft'] : array(), $wf_k);
     $wf_n = isset($_POST['ansage_test_ziel']) ? ansage_test_ziel($_POST) : 0;
     $wf_r = isset($_POST['ansage_test_ziel']) && $wf_n === 0
         ? array('stand' => 0, 'kennung' => 'ZIEL_UNBEKANNT|-', 'art' => '-', 'http' => 0, 'zeile' => '', 'zeichen' => 0)
-        : ($wf_n >= 1 ? ansage_testansage($wf_c['tts'], $wf_k, $wf_n) : ansage_testansage($wf_c['tts'], $wf_k));
+        : ($wf_n >= 1 ? ansage_testansage($wf_b, $wf_k, $wf_n) : ansage_testansage($wf_b, $wf_k));
     wd_log('Testansage: ' . ansage_kurz($wf_r));
     if ($wf_r['stand'] === 1) { $wf_note = wd_t('TTS.M_TEST_OK'); }
     elseif ($wf_r['kennung'] === 'AUS') { $wf_note_art = 'warn'; $wf_note = wd_t('TTS.M_TEST_AUS'); }

@@ -109,6 +109,10 @@ Dieses Plugin enthält keinen fremden Code. Es liest:
 
 Die Unwetterzentrale ist wegen ihrer Bedingungen bewusst nicht eingebaut. **WetterOnline ist ebenfalls nicht eingebaut, anders als bei Weather4Lox:** Es gibt keine öffentlich dokumentierte Schnittstelle; Weather4Lox nutzt Adressen, die für die WetterOnline-App gedacht sind. Die AGB (Fassung vom 24.02.2025, Ziffer 2) untersagen die unberechtigte Vervielfältigung und Speicherung der Inhalte und verweisen auf eine Anfrage vorab. Das Antwortformat des Emulators ist am öffentlichen Quelltext von Weather4Lox (Apache-2.0, Michael Schlenstedt, Jan Wachsmuth) abgelesen; es ist keine Zeile daraus übernommen. „Loxone“ ist eine Marke ihres Inhabers. Lizenz dieses Plugins: MIT.
 
+## Neu in 0.9.18
+
+- **Testansage mit übernommenem Sprechtoken:** Ist das Sprechtoken für Alexa-NG oder Chromecast 4 Lox NG hier leer, holt die echte Ansage es aus dem Nachbar-Plugin, die Testansage im Reiter *Test* tat das nicht. Echo- und Google-Lautsprecher blieben dort stumm mit „kein Token“, obwohl die Ansage sie erreicht hätte. Jetzt spricht die Testansage mit demselben Block wie die echte Ansage; gespeichert wird dabei nichts. Derselbe Fehler ist an AWM-Abfuhr am LoxBerry gemessen (13.11.2026); hier am Code festgestellt, am Gerät nicht gemessen.
+
 ## Neu in 0.9.17
 
 - **Die Sicherung trägt jetzt die Schlüssel der Dienste** (Entscheidung des Hausherrn vom 12.11.2026): „Einstellungen sichern“ schreibt neben dem Aktionstoken die API-Schlüssel für Open-Meteo, OpenWeather, WeatherAPI, Visual Crossing, Tomorrow.io, Meteoblue und Wunderground mit in die Datei. Von 0.9.6 bis 0.9.16 blieben sie draußen; nach einem Umzug auf einen zweiten LoxBerry mussten sie neu eingetragen werden. Die Datei ist damit wie ein Kennwort zu behandeln. Sprechtoken für andere Plugins stehen weiterhin nicht darin.
