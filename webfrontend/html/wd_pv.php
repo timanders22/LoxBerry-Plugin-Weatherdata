@@ -371,12 +371,15 @@ function wd_pv_auswahl(array $werte, $merker, $voll)
 function wd_pv_merker_datei() { return wd_tmpdir() . '/pv_letzte.json'; }
 function wd_pv_sitzung_datei() { return wd_tmpdir() . '/pv_sitzung.json'; }
 
-/** Merker "war Anbieter von haus/pv" (_pv_frueher), mit Zweitschrift; der Unterstrich haelt ihn aus der Sicherung. */
+/** Merker "war Anbieter von haus/pv" (_pv_frueher), mit Zweitschrift. Er gehoert zur Installation, nicht zur Sicherung:
+ *  seit 0.9.19 ein Vermerk des Sicherungsmoduls (wd_sicherung_vermerke(): nie gesichert, beim Zurueckspielen bleibt der
+ *  geltende Wert) mit der Vorgabe 0 - zurueckgesetzt wird er deshalb auf 0, nicht entfernt (sonst traege ihn
+ *  wd_config_vervollstaendigen() im naechsten Minutenlauf wieder ein). */
 function wd_pv_frueher_setzen($ja)
 {
     $c = wd_config();
     if ((int) !empty($c['_pv_frueher']) === ($ja ? 1 : 0)) { return false; }
-    if ($ja) { $c['_pv_frueher'] = 1; } else { unset($c['_pv_frueher']); }
+    $c['_pv_frueher'] = $ja ? 1 : 0;
     if (!wd_config_speichern($c)) { return false; }
     wd_zweitschrift($c);
     return true;

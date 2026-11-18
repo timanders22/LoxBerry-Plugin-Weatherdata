@@ -19,6 +19,10 @@ require_once __DIR__ . '/wd_seite.php';
 require_once __DIR__ . '/wd_eigen.php';
 require_once __DIR__ . '/wd_haus.php';
 require_once __DIR__ . '/wd_pv.php';
+/* 0.9.19: Gemeinsames Sicherungsmodul (Abschrift von Werkzeuge/gemeinsam/sicherung.php, Auftrag des Hausherrn
+ * 12.11.2026 und 18.11.2026: "Ja, umbauen"). Liegt neben dieser Datei und schuetzt sich gegen doppeltes Laden; die
+ * Beschreibung dieser Linie steht in wd_sicherung_beschreibung(). */
+require_once __DIR__ . '/sicherung.php';
 
 if (!function_exists('lb_wurzel_ermitteln')) {
     function lb_wurzel_ermitteln()
@@ -199,6 +203,12 @@ function wd_vorgaben()
     foreach (wd_felder() as $k => $f) { $v[$k] = $f[2]; }
     $v['tts'] = array();
     $v['ansage_regeln'] = ansage_regeln_vorgaben();
+    /* 0.9.19: die Vermerke, die diese Linie selbst in die Konfiguration schreibt (Regeln/05: was ein gemeinsames Modul
+     * dort haelt, steht in den Vorgaben). Sie kommen nie aus einer Sicherung und gehen nie in eine
+     * (wd_sicherung_vermerke()); fehlen und leer heissen wie bisher "nicht gesetzt". */
+    $v['ansage_token_herkunft'] = array();
+    $v['_haus_frueher'] = 0;
+    $v['_pv_frueher'] = 0;
     return $v;
 }
 
@@ -903,120 +913,237 @@ function wd_bausteinliste($c = null)
 
 /* ===================================================== Sicherung ===================================================== */
 
-/** Was in die Sicherungsdatei kommt: alle Einstellungen mit dem Aktionstoken und, seit 0.9.17, den Schluesseln der
- *  Dienste (Art 'g' in wd_felder(); Entscheidung des Hausherrn 12.11.2026, CLAUDE.md §9 - ohne sie ist die Sicherung
- *  nach einem Umzug wertlos). Von 0.9.6 bis 0.9.16 blieben die Schluessel draussen. Sprechtoken nie (Nr. 36 b), der
- *  Vermerk ansage_token_herkunft nie, das Formularmerkmal steht nicht in der Konfiguration (wd_merkwort()). */
-function wd_sicherung_stand()
+/*
+ * 0.9.19: "Einstellungen sichern" und "Einstellungen zurueckspielen" laufen ueber das gemeinsame Sicherungsmodul
+ * (sicherung.php, Regeln/05; Auftrag des Hausherrn 18.11.2026 "Ja, umbauen"). Diese Linie uebergibt nur ihre
+ * Beschreibung. Bis 0.9.18 standen hier eigene Funktionen (wd_sicherung_stand(), wd_sicherung_schluessel_pflicht(),
+ * wd_sicherung_lesen()): Kopf nur _warnung, ein unbekannter Schluessel oben wies die ganze Datei ab, ein fehlender
+ * spaeter Schluessel bekam die Vorgabe, der Vermerk ansage_token_herkunft fiel beim Zurueckspielen weg.
+ * Seither (Modulregeln, in allen Linien gleich): Kopf mit dem Kennzeichen _plugin; eine fremde Datei und eine Datei ohne
+ * Kennzeichen werden als Ganzes abgewiesen, ausser einer Sicherung dieser Linie bis 0.9.18 (wd_sicherung_alt_erkennen());
+ * unbekannte Schluessel werden verworfen und mit Namen genannt; ein leerer Wert ueberschreibt keinen bestehenden;
+ * spaeter hinzugekommene Schluessel behalten ihren geltenden Wert und werden genannt; eine halb gueltige Datei aendert
+ * nichts; Zurueckspielen nur mit Haken.
+ */
+
+/**
+ * 0.9.19: Die Vermerke dieser Linie - sie gehoeren zur Installation, nicht zur Sicherung: nie gesichert, beim
+ * Zurueckspielen bleibt der geltende Wert ('nie_aus_datei'). ansage_token_herkunft: woher die Sprechtoken stammen
+ * (Sprachmodul). _haus_frueher / _pv_frueher: diese Installation war Anbieter von haus/wetter bzw. haus/pv (0.9.8,
+ * 0.9.10). Bis 0.9.18 hielt index.php die beiden Merker beim Zurueckspielen von Hand fest; den Vermerk der Sprechtoken
+ * verlor das Zurueckspielen.
+ */
+function wd_sicherung_vermerke()
 {
-    $v = wd_config();
-    unset($v['ansage_token_herkunft']);
-    if (isset($v['tts']) && is_array($v['tts'])) { $v['tts'] = ansage_sicherung_bereinigen($v['tts']); }
-    return $v;
+    return array('ansage_token_herkunft', '_haus_frueher', '_pv_frueher');
 }
 
-/** 0.9.17: welche Schluessel der Dienste eine Sicherungsdatei tragen MUSS, wenn sie ueberhaupt einen traegt. Bis
- *  0.9.5 schrieb die Sicherung die ganze Konfiguration mit den sechs Schluesseln om_apikey bis mb_key (gemessen am
- *  Handler der Ordner 0.9.1 und 0.9.5; 0.9.0 nicht gemessen), von 0.9.6 bis 0.9.16 keinen, ab 0.9.17 alle. wu_key kam
- *  mit Wunderground in 0.9.7 (zusammen mit wu_ein und wu_station): eine Datei, die wu_station kennt und Schluessel
- *  traegt, stammt aus 0.9.17 oder spaeter und muss ihn tragen; eine Datei bis 0.9.5 kennt ihn nicht. Gemessen an
- *  wd_felder() der Ordner 0.9.1 bis 0.9.16. */
-function wd_sicherung_schluessel_pflicht($d)
+/**
+ * 0.9.19: Woran eine Sicherung bis 0.9.18 erkannt wird. Keine Fassung bis 0.9.18 schrieb einen Kopf mit _plugin
+ * (gemessen 18.11.2026 am Sichern-Knopf aller 19 Fassungen 0.9.0 bis 0.9.18 im Arbeitsordner), jede aber diese
+ * Schluessel: das Aktionstoken, die Einstellungen aus wd_felder() von 0.9.0 ohne die Schluessel der Dienste (die
+ * 0.9.6 bis 0.9.16 nicht sicherten) und die Bloecke tts und ansage_regeln. Gegen die anderen Linien gemessen:
+ * Pruefung-Weatherdata-0.9.19/ohne_kopf/. Ein Schluessel, der hier fehlt, ist beim Zurueckspielen Pflicht; jeder
+ * andere Schluessel aus wd_vorgaben() darf in einer aelteren Sicherung fehlen und behaelt seinen geltenden Wert.
+ */
+function wd_sicherung_alt_merkmal()
 {
-    $alle = array();
-    foreach (wd_felder() as $k => $f) { if ($f[1] === 'g') { $alle[] = $k; } }
-    $da = array();
-    foreach ($alle as $k) { if (array_key_exists($k, $d)) { $da[] = $k; } }
-    if (!$da) { return array($alle, array()); }     // Fassung 0.9.6 bis 0.9.16: keiner Pflicht
-    $pflicht = array_values(array_diff($alle, array('wu_key')));
-    if (array_key_exists('wu_station', $d) || array_key_exists('wu_ein', $d)) { $pflicht[] = 'wu_key'; }
-    return array($alle, $pflicht);
+    return array(
+        'aktionstoken', 'lat', 'lon', 'pos_stellen', 'warnzelle', 'om_takt_min', 'dwd_takt_min',
+        'prog_max_alter_min', 'warn_max_alter_min', 'hitze_basis', 'hitze1_c', 'hitze2_c', 'hitze3_c', 'hysterese_k',
+        'frost_c', 'sturm_kmh', 'regen1h_mm', 'regen12h_mm', 'uv_hoch', 'sturm_vor_min', 'lueften_delta_k',
+        'lueften_innen_min_c', 'lueften_letzte', 'morgen_zeit', 'mittag_zeit', 'abend_zeit', 'om_ein', 'dwd_ein',
+        'bs_ein', 'station_ein', 'station_art', 'station_host1', 'station_host2', 'mosmix_ein', 'met_ein',
+        'bias_ein', 'fassade_ein', 'fassade_az', 'aq_ein', 'pollen_ein', 'pollen_region', 'radar_ein', 'nina_ein',
+        'nina_ars', 'ma_ein', 'ma_land', 'ma_emma', 'ow_ein', 'wa_ein', 'vc_ein', 'tm_ein', 'mb_ein',
+        'station_ordner', 'station_gleich_min', 'station_sprung_k', 'a_warn', 'a_hitze', 'a_uv', 'a_frost',
+        'a_starkregen', 'a_sturm', 'a_lueften', 'a_briefing', 'a_nina', 'pollen_sperre', 'luft_sperre_aqi',
+        'p_hasel', 'p_erle', 'p_esche', 'p_birke', 'p_graeser', 'p_roggen', 'p_beifuss', 'p_ambrosia', 's1_wind',
+        's1_frost', 's1_schnee', 's1_nebel', 's1_glaette', 'ansage_sprache', 'mqtt_ein', 'mqtt_topic', 'tts',
+        'ansage_regeln'
+    );
 }
 
-/** Liest eine Sicherungsdatei. Rueckgabe: array(neuer Stand oder null, Mangel, Anzahl, Hinweise). Eine halb gueltige Datei aendert nichts. */
-function wd_sicherung_lesen($roh, $geltend = null)
+/**
+ * 0.9.19: Die Kopfschluessel, die eine Sicherung bis 0.9.18 tragen konnte: _warnung (bei einem Wert, den das eigene
+ * Zurueckspielen abwiese) und die beiden Merker _haus_frueher (seit 0.9.8) und _pv_frueher (seit 0.9.10), die der
+ * Knopf mit der ganzen Konfiguration mitschrieb. Ein anderer Schluessel mit Unterstrich (_hinweis, _fassung, _stand)
+ * stammt aus einer Fassung mit Kopf, die immer _plugin schreibt - ohne _plugin ist eine solche Datei keine aeltere
+ * eigene.
+ */
+function wd_sicherung_alt_kopf()
 {
-    $mangel = array(); $hin = array();
-    $d = json_decode((string) $roh, true);
-    if (!is_array($d) || ($d !== array() && array_keys($d) === range(0, count($d) - 1))) { return array(null, array(wd_t('SICH.KEIN_JSON')), 0, array()); }
-    $neu = wd_vorgaben();
-    // Fehlt ein Dienstschluessel in der Datei (0.9.6 bis 0.9.16 immer), bleibt der geltende. Eine Datei mit Schluesseln
-    // (bis 0.9.5, ab 0.9.17) setzt die ihren; ob sie vollstaendig ist, prueft wd_sicherung_schluessel_pflicht() unten.
-    foreach (wd_felder() as $k => $f) { if ($f[1] === 'g' && is_array($geltend) && isset($geltend[$k]) && is_string($geltend[$k])) { $neu[$k] = $geltend[$k]; } }
-    $n = 0;
-    $wf_felder_g = array();
-    foreach (wd_felder() as $k => $f) { if ($f[1] === 'g') { $wf_felder_g[$k] = true; } }
-    foreach ($d as $k => $w) {
-        $k = (string) $k;
-        if ($k !== '' && $k[0] === '_') { continue; }
-        if ($k === 'ansage_token_herkunft') { continue; }
-        if ($k === 'ansage_regeln') {
-            $g = ''; $r = ansage_regeln_wert($w, $g);
-            if ($r === null) { $mangel[] = sprintf(wd_t('SICH.WERT'), $k, $g); } else { $neu[$k] = $r; }
-            continue;
-        }
-        if ($k === 'tts') {
-            if (!is_array($w)) { $mangel[] = sprintf(wd_t('SICH.WERT'), $k, 'Block'); continue; }
-            $tm = ansage_sicherung_mangel($w);
-            foreach ($tm as $g) { $mangel[] = sprintf(wd_t('SICH.WERT'), $g, wd_t('SICH.TOKEN')); }
-            if ($tm) { continue; }
-            $g = '';
-            $w = ansage_wert_pruefen(ansage_sicherung_bereinigen($w), $g, wd_ansage_modi());
-            if ($w === null) { $mangel[] = sprintf(wd_t('SICH.WERT'), 'tts', ansage_kennung_text($g, wd_ansage_k())); continue; }
-            list($b) = ansage_vervollstaendigen($w, 'musicserver');
-            $neu['tts'] = $b;
-            if (function_exists('ansage_sicherung_spaet')) { list($neu['tts']) = ansage_sicherung_spaet($neu['tts'], (is_array($geltend) && isset($geltend['tts'])) ? $geltend['tts'] : null); }
-            $neu['tts'] = ansage_sicherung_tokens_behalten($neu['tts'], (is_array($geltend) && isset($geltend['tts'])) ? $geltend['tts'] : null);
-            $n++;
-            continue;
-        }
-        if (!array_key_exists($k, $neu)) { $mangel[] = sprintf(wd_t('SICH.FREMD'), $k); continue; }
-        list($ok, $wert, $gr) = wd_wert_pruefen($k, $w);
-        if (!$ok) { $mangel[] = sprintf(wd_t('SICH.WERT'), $k, $gr); continue; }
-        /* 0.9.17, Entscheidung des Hausherrn 12.11.2026: ein LEERER Schluessel der Dienste in der Datei heisst "nicht
-         * gesichert" und ueberschreibt keinen hier eingetragenen (oben aus $geltend vorbelegt) - der bleibt, und der
-         * Hinweis nennt ihn mit Namen, nie mit Wert. Ist er hier auch leer, bleibt er leer, ohne Hinweis. Geleert wird
-         * ein Schluessel nur im Formular (Haken "loeschen"). */
-        if (isset($wf_felder_g[$k]) && $wert === '') {
-            if (is_string($neu[$k]) && $neu[$k] !== '') { $hin[] = sprintf(wd_t('SICH.SCHLUESSEL_LEER'), $k); }
-            $n++;
-            continue;
-        }
-        $neu[$k] = $wert;
-        $n++;
-    }
-    if ($n === 0) { $mangel[] = wd_t('SICH.LEER'); }
-    $fehlt = array();
-    // Felder, die eine Sicherung von vor 0.9.4 nicht kennen kann, gelten mit ihrer Vorgabe; alles andere muss da sein.
-    $wf_felder = wd_felder();
-    foreach (array_keys(wd_vorgaben()) as $k) { if (!array_key_exists($k, $d) && !in_array($k, array('wttr_ein', 'emu_ein', 'emu_nur_ms', 'wu_ein', 'wu_station', 'lox_ein', 'lox_gueltig_min', 'haus_wetter_ein', 'wbgt_ein', 'wbgt_wind_m'), true) && !preg_match('/^(haus_pv_ein|pv[1-4]?_[a-z_]+)\z/', $k) && !(isset($wf_felder[$k]) && $wf_felder[$k][1] === 'g')) { $fehlt[] = $k; } }
-    if ($fehlt) { $mangel[] = sprintf(wd_t('SICH.FEHLEND'), count($fehlt), implode(', ', $fehlt)); }
-    /* 0.9.17: die Schluessel der Dienste (wd_sicherung_schluessel_pflicht()). Traegt die Datei keinen, stammt sie aus
-     * 0.9.6 bis 0.9.16: die hier eingetragenen bleiben (oben vorbelegt), und der Hinweis nennt die Namen, nie Werte.
-     * Traegt sie einen, muss sie alle tragen, die es zu ihrer Fassung gab - sonst ist sie unvollstaendig und aendert
-     * nichts. Ein leerer Schluessel in der Datei heisst "nicht gesichert" (siehe die Schleife oben). */
-    list($wd_g_alle, $wd_g_pflicht) = wd_sicherung_schluessel_pflicht($d);
-    $wd_g_fehlt = array();
-    foreach ($wd_g_pflicht as $k) { if (!array_key_exists($k, $d)) { $wd_g_fehlt[] = $k; } }
-    if ($wd_g_fehlt) { $mangel[] = sprintf(wd_t('SICH.SCHLUESSEL_FEHLEN'), implode(', ', $wd_g_fehlt)); }
-    $wd_g_behalten = array();
-    foreach ($wd_g_alle as $k) {
-        if (!array_key_exists($k, $d) && is_string($neu[$k]) && $neu[$k] !== '') { $wd_g_behalten[] = $k; }
-    }
-    if (!$wd_g_pflicht) {
-        $hin[] = sprintf(wd_t('SICH.SCHLUESSEL_ALT'), $wd_g_behalten ? implode(', ', $wd_g_behalten) : wd_t('SICH.SCHLUESSEL_KEINER'));
-    } elseif ($wd_g_behalten) {
-        $hin[] = sprintf(wd_t('SICH.SCHLUESSEL_BLEIBT'), implode(', ', $wd_g_behalten));
-    }
-    if (trim((string) $neu['aktionstoken']) === '') { $mangel[] = wd_t('SICH.TOKEN_LEER'); }
-    return array($mangel ? null : $neu, $mangel, $n, $hin);
+    return array('_warnung', '_haus_frueher', '_pv_frueher');
 }
 
-/** Nimmt die Sicherung wegen eines Altwerts das eigene Zurueckspielen nicht an? Dann steht es am Knopf. */
+/**
+ * 0.9.19: Der Uebersetzer fuer das Sicherungsmodul ('uebersetzer'; das Modul ruft ihn nur fuer eine Datei ohne
+ * _plugin). Angenommen wird sie nur, wenn jeder Schluessel aus wd_sicherung_alt_merkmal() oben steht und sie keinen
+ * anderen Kopfschluessel als die aus wd_sicherung_alt_kopf() traegt; die Meldung sagt dann "aeltere Sicherung erkannt"
+ * (Modultext K_ALT_ERKANNT). Sonst null, und das Modul weist die Datei als Ganzes ab. Umgeschrieben wird nichts.
+ */
+function wd_sicherung_alt_erkennen($d)
+{
+    if (!is_array($d) || array_key_exists('_plugin', $d)) { return null; }
+    foreach (array_keys($d) as $k) {
+        if (is_string($k) && $k !== '' && $k[0] === '_' && !in_array($k, wd_sicherung_alt_kopf(), true)) { return null; }
+    }
+    foreach (wd_sicherung_alt_merkmal() as $k) {
+        if (!array_key_exists($k, $d)) { return null; }
+    }
+    return $d;
+}
+
+/**
+ * 0.9.19: Die Beschreibung dieser Linie fuer das gemeinsame Sicherungsmodul.
+ *  - Inhalt: alle Einstellungen aus wd_vorgaben() mit dem Aktionstoken und den Schluesseln der Dienste (Art 'g' in
+ *    wd_felder(), seit 0.9.17; Entscheidung des Hausherrn 12.11.2026). Sprechtoken nie ('sichern'), die Vermerke nie.
+ *  - Jeder Wert geht durch wd_wert_pruefen() (dieselbe Pruefung wie das Formular) und wird in dessen Normalform
+ *    uebernommen ('wandeln'); der Block tts durch das Sprachmodul (eine Datei mit Sprechtoken wird abgewiesen), der
+ *    Block ansage_regeln durch ansage_regeln_wert(). Ohne Aktionstoken wird nichts zurueckgespielt ('quer').
+ *  - Pflicht sind die Schluessel aus wd_sicherung_alt_merkmal(); jeder andere darf fehlen und behaelt den geltenden
+ *    Wert, ebenso tts.ziele (bis 0.9.18 ansage_sicherung_spaet()).
+ */
+function wd_sicherung_beschreibung()
+{
+    $p = wd_paths();
+    $tts = array_merge(array_keys(ansage_werk_block()), ansage_geheim());
+    $schluessel = array(
+        'tts' => sicherung_block($tts, array('ziele' => sicherung_liste(array('art', 'wo', 'laut', 'sprache', 'ein'))
+                                                        + array('fehlt' => 'behalten')))
+                 + array(
+                     'sichern' => 'ansage_sicherung_bereinigen',
+                     'pruefen' => function ($w, $k = '', $neu = null, $roh = null) {
+                         /* Eine Sicherung dieses Plugins traegt nie ein Sprechtoken - traegt die Datei eines, wird
+                          * sie abgewiesen. Gemessen am Block der DATEI, denn Regel 3 des Moduls setzt ein leeres
+                          * Feld vorher auf den geltenden Wert. */
+                         if (ansage_sicherung_mangel($roh)) { return sprintf(wd_t('SICH.WERT'), 'tts', wd_t('SICH.TOKEN')); }
+                         $g = '';
+                         if (!is_array($w) || ansage_wert_pruefen(ansage_sicherung_bereinigen($w), $g, wd_ansage_modi()) === null) {
+                             return sprintf(wd_t('SICH.WERT'), 'tts', ansage_kennung_text($g, wd_ansage_k()));
+                         }
+                         return '';
+                     },
+                     'wandeln' => function ($w) {
+                         $g = '';
+                         return ansage_wert_pruefen(ansage_sicherung_bereinigen($w), $g, wd_ansage_modi());
+                     }),
+        'ansage_regeln' => sicherung_block(array_keys(ansage_regeln_vorgaben()))
+                 + array(
+                     'pruefen' => function ($w) {
+                         $g = '';
+                         return ansage_regeln_wert($w, $g) === null ? sprintf(wd_t('SICH.WERT'), 'ansage_regeln', $g) : '';
+                     },
+                     'wandeln' => function ($w) {
+                         $g = '';
+                         return ansage_regeln_wert($w, $g);
+                     }),
+    );
+    foreach (array_merge(array('aktionstoken'), array_keys(wd_felder())) as $k) {
+        $schluessel[$k] = array('wandeln' => function ($w) use ($k) {
+            list(, $v) = wd_wert_pruefen($k, $w);
+            return $v;
+        });
+    }
+    foreach (array_keys(wd_vorgaben()) as $k) {
+        if (in_array($k, wd_sicherung_alt_merkmal(), true) || in_array($k, wd_sicherung_vermerke(), true)) { continue; }
+        if (!isset($schluessel[$k])) { $schluessel[$k] = array(); }
+        $schluessel[$k]['fehlt'] = 'behalten';
+    }
+    return array(
+        'kennzeichen' => 'LoxBerry-Plugin-Weatherdata',
+        'hinweis' => wd_t('SICH.KOPF'),
+        /* Die Fassung im Kopf kommt aus der Plugin-Datenbank bzw. plugin.cfg - keine fuenfte Stelle neben den vier,
+         * die Werkzeuge/fassung_setzen.py pflegt. */
+        'home' => (string) $p['lbhome'], 'ordner' => (string) $p['plugin'],
+        'plugin_cfg' => dirname(dirname(__DIR__)) . '/plugin.cfg',
+        'vorgaben' => wd_vorgaben(),
+        'schluessel' => $schluessel,
+        'nie_aus_datei' => wd_sicherung_vermerke(),
+        'uebersetzer' => 'wd_sicherung_alt_erkennen',
+        'pruefen' => function ($k, $w) {
+            if (in_array((string) $k, wd_sicherung_vermerke(), true)) { return ''; }     // geltender Wert, nie aus der Datei
+            list($ok, , $g) = wd_wert_pruefen($k, $w);
+            return $ok ? '' : sprintf(wd_t('SICH.WERT'), $k, $g);
+        },
+        'quer' => function ($neu) {
+            return (is_array($neu) && isset($neu['aktionstoken']) && trim((string) $neu['aktionstoken']) !== '')
+                ? array() : array(array('aktionstoken', wd_t('SICH.TOKEN_LEER')));
+        },
+        'jetzt' => function () { return wd_config(); },
+        't' => 'wd_t',
+        'e' => 'wd_e',
+    );
+}
+
+/**
+ * 0.9.19: Die Beschreibung fuer die Meldungen des Knopfes "Einstellungen zurueckspielen": als Klartext ('e'), denn die
+ * Oberflaeche maskiert jede Meldung einmal bei der Ausgabe (wd_e()). Regeln/05 "Meldungen als Klartext". Die
+ * Haken-Zeile bekommt die unveraenderte Beschreibung und bleibt maskiert.
+ */
+function wd_sicherung_klartext()
+{
+    return array('e' => function ($s) { return (string) $s; }) + wd_sicherung_beschreibung();
+}
+
+/** 0.9.19: Die Sicherungsdatei als Text - Kopf und Inhalt baut das Modul. '' wenn sie sich nicht bilden laesst. */
+function wd_sicherung_bauen()
+{
+    return sicherung_json(sicherung_bauen(wd_sicherung_beschreibung(), wd_config()));
+}
+
+/**
+ * 0.9.19: Vor dem Speichern: der Block tts in der Normalform dieser Linie (fehlende Felder mit der Vorgabe, wie
+ * wd_config() ihn liest), die geltenden Sprechtoken bleiben (die Sicherung traegt keine).
+ */
+function wd_sicherung_vorbereiten($neu, $jetzt, $r)
+{
+    if (isset($neu['tts']) && is_array($neu['tts'])) {
+        $jt = (is_array($jetzt) && isset($jetzt['tts']) && is_array($jetzt['tts'])) ? $jetzt['tts'] : array();
+        list($tv) = ansage_vervollstaendigen($neu['tts'], 'musicserver');
+        $neu['tts'] = ansage_sicherung_tokens_behalten($tv, $jt);
+    }
+    return $neu;
+}
+
+/**
+ * 0.9.19: Speichern wie im Formular (0600) und die Zweitschrift nachziehen; danach nachlesen, ob der Stand angekommen
+ * ist (bis 0.9.18 SICH.NICHT_ANGEKOMMEN) - sonst meldet das Modul den Schreibfehler.
+ */
+function wd_sicherung_speichern($neu)
+{
+    if (!wd_config_speichern($neu)) { return false; }
+    wd_zweitschrift($neu);
+    return wd_inhalt_oder_null(wd_paths()['config']) == $neu;
+}
+
+/**
+ * 0.9.19: Nach dem Zurueckspielen nachziehen und sagen, was geschah (Regeln/05), dieselben Schritte wie bis 0.9.18:
+ * die MQTT-Signatur verwerfen (der naechste Lauf sendet den vollen Satz), das Abo nachziehen, die Hausthemen haus/wetter
+ * und haus/pv einschalten oder abraeumen. Einen eigenen Dienst gibt es nicht; der Minutentakt liest die Einstellungen
+ * bei seinem naechsten Lauf. Rueckgabe: Saetze (Klartext).
+ */
+function wd_sicherung_nachziehen($neu, $jetzt, $r)
+{
+    $h = array(wd_t('SICH.DIENST'));
+    $vorher = is_array($jetzt) ? $jetzt : array();
+    @unlink(wd_tmpdir() . '/mqtt_sig.txt');
+    wd_abo_nachziehen($neu);
+    list($hm, , $hf) = wd_haus_folgen($vorher, $neu);
+    if ($hf !== null) { wd_haus_frueher_setzen((bool) $hf); }
+    if ($hm !== '') { $h[] = $hm; }
+    list($pm, , $pf) = wd_pv_folgen($vorher, $neu);
+    if ($pf !== null) { wd_pv_frueher_setzen((bool) $pf); }
+    if ($pm !== '') { $h[] = $pm; }
+    return $h;
+}
+
+/**
+ * Nimmt die Sicherung wegen eines Werts das eigene Zurueckspielen nicht an? Dann steht es am Knopf. Seit 0.9.19
+ * derselbe Satz, den das Modul als _warnung in die Datei schreibt (nur Namen, nie Werte).
+ */
 function wd_rueckspiel_altwerte()
 {
-    $v = wd_sicherung_stand();
-    if (trim((string) $v['aktionstoken']) === '') { return array(); }
-    $e = wd_sicherung_lesen((string) json_encode($v), wd_config());
-    return $e[0] === null ? $e[1] : array();
+    $d = sicherung_bauen(wd_sicherung_beschreibung(), wd_config());
+    return (isset($d['_warnung']) && is_string($d['_warnung']) && $d['_warnung'] !== '') ? array($d['_warnung']) : array();
 }

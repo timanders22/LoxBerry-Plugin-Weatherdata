@@ -66,12 +66,11 @@ if ($wf_post && isset($_POST['lox_vorlage'])) {
     exit;
 }
 // ---------- Sichern: Download mit allen Einstellungen, Standort nur als Einstellung ----------
+// 0.9.19: Kopf und Inhalt baut das gemeinsame Sicherungsmodul (wd_sicherung_bauen()); wuerde das eigene Zurueckspielen
+// die Datei abweisen, sagt es der Kopf _warnung - nur mit Namen, nie mit Werten.
 if ($wf_post && isset($_POST['wd_sichern'])) {
-    $wf_v = wd_sicherung_stand();
-    $wf_alt = wd_rueckspiel_altwerte();
-    if ($wf_alt) { $wf_v = array('_warnung' => sprintf(wd_t('SICH.WARNKOPF'), implode(' ', $wf_alt))) + $wf_v; }
-    $wf_js = json_encode($wf_v, JSON_PRETTY_PRINT | JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES);
-    if ($wf_js !== false) {
+    $wf_js = wd_sicherung_bauen();
+    if ($wf_js !== '') {
         while (ob_get_level() > 0) { @ob_end_clean(); }
         header('Content-Type: application/json; charset=utf-8');
         header('Content-Disposition: attachment; filename="weatherdata_einstellungen_' . date('Ymd_His') . '.json"');
@@ -81,40 +80,26 @@ if ($wf_post && isset($_POST['wd_sichern'])) {
     $wf_err = wd_t('SICH.SCHREIBFEHLER');
 }
 // ---------- Zurueckspielen ----------
+// 0.9.19: den Eingang prueft das gemeinsame Sicherungsmodul (sicherung_eingang()), in jeder Linie gleich: zuerst der
+// Haken zurueck_ok (ohne ihn wird nichts gelesen und nichts geaendert), dann is_uploaded_file() und die Groessengrenze
+// des Moduls. Lesen, Pruefen, Speichern, Zweitschrift und Nachziehen macht sicherung_zurueckspielen() mit den
+// Rueckrufen dieser Linie (wd_sicherung_vorbereiten(), wd_sicherung_speichern(), wd_sicherung_nachziehen()); die
+// Vermerke (_haus_frueher, _pv_frueher, ansage_token_herkunft) behalten ihren geltenden Wert ('nie_aus_datei').
 if ($wf_post && isset($_POST['wd_zurueck'])) {
-    if (!isset($_FILES['wd_sicherung']['tmp_name']) || !is_string($_FILES['wd_sicherung']['tmp_name']) || !@is_uploaded_file($_FILES['wd_sicherung']['tmp_name'])) {
-        $wf_err = wd_t('SICH.KEINE_DATEI');
-    } elseif ((int) $_FILES['wd_sicherung']['size'] > 262144) {
-        $wf_err = wd_t('SICH.ZU_GROSS');
+    $wf_b = wd_sicherung_klartext();
+    list($wf_roh, $wf_ab) = sicherung_eingang($wf_b, $_POST, $_FILES, 'wd_sicherung');
+    if ($wf_ab !== null) {
+        $wf_m = sicherung_meldungen($wf_b, $wf_ab);
     } else {
-        $wf_halt = wd_config();
-        $wf_e = wd_sicherung_lesen((string) @file_get_contents($_FILES['wd_sicherung']['tmp_name']), $wf_halt);
-        // 0.9.8: der Merker "war Anbieter von haus/wetter" gehoert zur Installation, nicht zur Sicherung - er bleibt.
-        if ($wf_e[0] !== null && !empty($wf_halt['_haus_frueher'])) { $wf_e[0]['_haus_frueher'] = 1; }
-        if ($wf_e[0] !== null && !empty($wf_halt['_pv_frueher'])) { $wf_e[0]['_pv_frueher'] = 1; }     // 0.9.10: ebenso fuer haus/pv
-        if ($wf_e[0] === null) {
-            $wf_err = wd_t('SICH.ABGELEHNT') . ' ' . implode(' ', $wf_e[1]);
-        } elseif (wd_config_speichern($wf_e[0])) {
-            wd_zweitschrift($wf_e[0]);
-            $wf_ist = wd_inhalt_oder_null($wf_p['config']);
-            if ($wf_ist == $wf_e[0]) {
-                $wf_note = sprintf(wd_t('SICH.UEBERNOMMEN'), $wf_e[2]) . ' ' . wd_t('SICH.DIENST');
-                $wf_hinweise = array_merge($wf_hinweise, $wf_e[3]);
-                @unlink(wd_tmpdir() . '/mqtt_sig.txt');
-                wd_abo_nachziehen($wf_e[0]);
-                list($wf_hm, $wf_ha, $wf_hf) = wd_haus_folgen($wf_halt, $wf_e[0]);
-                if ($wf_hf !== null) { wd_haus_frueher_setzen((bool) $wf_hf); }
-                if ($wf_hm !== '') { $wf_hinweise[] = $wf_hm; }
-                list($wf_pm2, $wf_pa2, $wf_pf2) = wd_pv_folgen($wf_halt, $wf_e[0]);
-                if ($wf_pf2 !== null) { wd_pv_frueher_setzen((bool) $wf_pf2); }
-                if ($wf_pm2 !== '') { $wf_hinweise[] = $wf_pm2; }
-            } else {
-                $wf_err = wd_t('SICH.NICHT_ANGEKOMMEN');
-            }
-        } else {
-            $wf_err = wd_t('SICH.SCHREIBFEHLER');
-        }
+        $wf_b['vorbereiten'] = 'wd_sicherung_vorbereiten';
+        $wf_b['speichern'] = 'wd_sicherung_speichern';
+        $wf_b['zweitschrift'] = function () { $p = wd_paths(); return array($p['config'], $p['backup']); };
+        $wf_b['nachziehen'] = 'wd_sicherung_nachziehen';
+        $wf_b['log'] = 'wd_log';
+        $wf_m = sicherung_meldungen($wf_b, sicherung_zurueckspielen($wf_b, $wf_roh));
     }
+    foreach ($wf_m['fehler'] as $wf_t) { $wf_fehler[] = $wf_t; }
+    foreach ($wf_m['hinweise'] as $wf_t) { $wf_hinweise[] = $wf_t; }
 }
 // ---------- Testansage, Dienstprobe, Warnzelle, Protokoll, Token ----------
 if ($wf_post && (isset($_POST['ansage_test']) || isset($_POST['ansage_test_ziel']))) {
@@ -553,7 +538,7 @@ if ($wf_frame) { LBWeb::lbheader('Weatherdata', 'https://wiki.loxberry.de/plugin
 <div class="sm-legende"><span><i class="sm-punkt sm-b-lesen"></i> <?= wd_e(wd_t('LEGENDE.LESEN')) ?></span><span><i class="sm-punkt sm-b-aktion"></i> <?= wd_e(wd_t('LEGENDE.AKTION')) ?></span></div>
 <div class="sm-knopfreihe">
   <form action="index.php" method="post"><?= wd_fmt() ?><input data-role="none" type="hidden" name="activetab" value="tab-settings"><button data-role="none" class="sm-btn sm-b-lesen" type="submit" name="wd_sichern" value="1"><?= wd_e(wd_t('SICH.K_SICHERN')) ?></button></form>
-  <form action="index.php" method="post" enctype="multipart/form-data"><?= wd_fmt() ?><input data-role="none" type="hidden" name="activetab" value="tab-settings"><input data-role="none" type="file" name="wd_sicherung" accept=".json"><button data-role="none" class="sm-btn sm-b-aktion" type="submit" name="wd_zurueck" value="1"><?= wd_e(wd_t('SICH.K_ZURUECK')) ?></button></form>
+  <form action="index.php" method="post" enctype="multipart/form-data"><?= wd_fmt() ?><input data-role="none" type="hidden" name="activetab" value="tab-settings"><input data-role="none" type="file" name="wd_sicherung" accept=".json"><?= sicherung_haken_zeile(wd_sicherung_beschreibung()) ?><button data-role="none" class="sm-btn sm-b-aktion" type="submit" name="wd_zurueck" value="1"><?= wd_e(wd_t('SICH.K_ZURUECK')) ?></button></form>
 </div>
 </div>
 

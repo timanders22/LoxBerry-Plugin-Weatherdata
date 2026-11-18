@@ -365,13 +365,16 @@ function wd_haus_sitzung(array $senden, array $rueck = array())
 function wd_haus_merker_datei() { return wd_tmpdir() . '/haus_letzte.json'; }
 function wd_haus_sitzung_datei() { return wd_tmpdir() . '/haus_sitzung.json'; }
 
-/** Den Merker "war Anbieter" (_haus_frueher) setzen oder entfernen - mit Zweitschrift. Der Unterstrich haelt ihn aus der
- *  Sicherungsdatei heraus (wd_sicherung_lesen() uebergeht ihn). Rueckgabe true, wenn geschrieben wurde. */
+/** Den Merker "war Anbieter" (_haus_frueher) setzen oder zuruecksetzen - mit Zweitschrift. Er gehoert zur Installation,
+ *  nicht zur Sicherung: seit 0.9.19 ein Vermerk des Sicherungsmoduls (wd_sicherung_vermerke(): nie gesichert, beim
+ *  Zurueckspielen bleibt der geltende Wert) mit der Vorgabe 0 - zurueckgesetzt wird er deshalb auf 0, nicht entfernt
+ *  (sonst traege ihn wd_config_vervollstaendigen() im naechsten Minutenlauf wieder ein). Rueckgabe true, wenn geschrieben
+ *  wurde. */
 function wd_haus_frueher_setzen($ja)
 {
     $c = wd_config();
     if ((int) !empty($c['_haus_frueher']) === ($ja ? 1 : 0)) { return false; }
-    if ($ja) { $c['_haus_frueher'] = 1; } else { unset($c['_haus_frueher']); }
+    $c['_haus_frueher'] = $ja ? 1 : 0;
     if (!wd_config_speichern($c)) { return false; }
     wd_zweitschrift($c);
     return true;
