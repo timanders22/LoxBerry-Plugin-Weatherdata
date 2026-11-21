@@ -350,7 +350,8 @@ $wf_pf = wd_mqtt_praefix($wf_cfg);
 $wf_gw = wd_gateway_fassung();
 $wf_as = wd_gateway_autostart();
 $wf_host = wd_e(isset($_SERVER['HTTP_HOST']) ? $_SERVER['HTTP_HOST'] : 'loxberry');
-if ($wf_frame) { LBWeb::lbheader('Weatherdata', 'https://wiki.loxberry.de/plugins/start', 'help.html'); }
+require_once __DIR__ . '/fassung.php';   // Fassung im Titel: gemeinsames Stueck fassung.php (21.11.2026)
+if ($wf_frame) { LBWeb::lbheader(plugin_kopftitel('Weatherdata', __DIR__), 'https://wiki.loxberry.de/plugins/start', 'help.html'); }
 ?>
 <style>
 .sm-wrap { max-width: 940px; margin: 0 auto; font-family: -apple-system, 'Segoe UI', Roboto, sans-serif; color: #333; }
