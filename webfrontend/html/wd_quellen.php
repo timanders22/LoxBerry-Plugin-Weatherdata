@@ -707,6 +707,36 @@ function wd_tag(array $c, array $rg, $jetzt)
         'abend' => $fen((string) $c['abend_zeit'], 120), 'letzte' => $fen((string) $c['lueften_letzte'], 10), 'heute' => date('Ymd', $jetzt));
 }
 
+/**
+ * 0.9.22 (Entscheidung des Hausherrn 22.11.2026, Sprachmodul 1.5.0): Tagesfenster und Ansageplan mit den Regeln fuer heute. Erst nach den Regeln
+ * fuer Schultage; nur wenn dann etwas zu sagen ist und keine Nachtruhe gilt, fragt $lesen nach den Regeln fuer heute (an
+ * Nicht-Schultagen endet die Nachtruhe spaeter). Endet sie spaeter, werden Fenster und Plan damit neu gerechnet: bis zu ihrem
+ * Ende gilt die Nachtruhe (nur, was weckt), das fruehe Fenster beginnt mit ihm. Rueckgabe array(Tag, Plan).
+ * $lesen: function(array $rg): array (Regeln fuer heute) oder null (Sprachmodul vor 1.5.0: wie bisher). Rein bis auf $lesen.
+ */
+function wd_tag_heute(array $st, array $c, array $stand, array $rg, $jetzt, $lesen)
+{
+    $tag = wd_tag($c, $rg, $jetzt);
+    $plan = wd_ansage_plan($st, $c, $stand, $tag, $jetzt);
+    if (!$plan || !empty($tag['nacht']) || empty($rg['nachtruhe']) || !is_callable($lesen)) { return array($tag, $plan); }
+    $rh = call_user_func($lesen, $rg);
+    if (is_array($rh) && isset($rh['bis']) && (string) $rh['bis'] !== (string) $rg['bis']) {
+        $tag = wd_tag($c, $rh, $jetzt);
+        $plan = wd_ansage_plan($st, $c, $stand, $tag, $jetzt);
+    }
+    return array($tag, $plan);
+}
+
+/** 0.9.22: der Leser fuer wd_tag_heute() - die Regeln fuer heute aus dem Sprachmodul (ab 1.5.0), sonst null. */
+function wd_regeln_heute_leser(array $k, $jetzt)
+{
+    if (!function_exists('ansage_regeln_heute_lesen')) { return null; }
+    return function (array $rg) use ($k, $jetzt) {
+        list($rh) = ansage_regeln_heute_lesen($rg, $k + array('jetzt' => function () use ($jetzt) { return (int) $jetzt; }));
+        return $rh;
+    };
+}
+
 function wd_ansagen(array $st, array $c, $jetzt)
 {
     $k = wd_ansage_k($c);
@@ -716,8 +746,8 @@ function wd_ansagen(array $st, array $c, $jetzt)
     $f = wd_datadir() . '/ansage_stand.json';
     $stand = wd_json_lesen($f);
     if (!is_array($stand)) { $stand = array('lagen' => array(), 'tag' => array()); }
-    $tag = wd_tag($c, $rg, $jetzt);
-    $plan = wd_ansage_plan($st, $c, $stand, $tag, $jetzt);
+    /* 0.9.22: Fenster und Plan mit den Regeln fuer heute (an Nicht-Schultagen endet die Nachtruhe spaeter). */
+    list($tag, $plan) = wd_tag_heute($st, $c, $stand, $rg, $jetzt, wd_regeln_heute_leser($k, $jetzt));
     if (!$plan) { wd_json_schreiben($f, wd_ansage_gesprochen($stand, array(), array(), $tag['heute'], $jetzt)); return 'nichts'; }
     $ein = array();
     foreach ($plan as $e) { $ein[] = array_intersect_key($e, array('schluessel' => 1, 'text' => 1, 'dringend' => 1)); }
