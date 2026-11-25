@@ -101,6 +101,12 @@ if ($wf_post && isset($_POST['wd_zurueck'])) {
     foreach ($wf_m['fehler'] as $wf_t) { $wf_fehler[] = $wf_t; }
     foreach ($wf_m['hinweise'] as $wf_t) { $wf_hinweise[] = $wf_t; }
 }
+/* 0.9.23: Testmeldung an SignalBot (Knopf im Reiter Warnungen, unter den Ansage-Regeln). Speichert nichts. */
+if ($wf_post && isset($_POST['meld_test'])) {
+    list($meld_ok, $meld_satz) = wd_meld_test();
+    if ($meld_ok) { $wf_note = $meld_satz; } else { $wf_note_art = 'err'; $wf_note = $meld_satz; }
+    $wf_tab = 'tab-warnungen';
+}
 // ---------- Testansage, Dienstprobe, Warnzelle, Protokoll, Token ----------
 if ($wf_post && (isset($_POST['ansage_test']) || isset($_POST['ansage_test_ziel']))) {
     $wf_c = wd_config(); $wf_k = wd_ansage_k();
@@ -194,6 +200,7 @@ if ($wf_post && isset($_POST['token_neu'])) {
 // ---------- Speichern, je Formular ein Teil der Feldtabelle ----------
 foreach (array('save', 'quellen_save', 'zusatz_save', 'pv_save', 'warn_save', 'mqtt_save', 'emu_save', 'lox_save') as $wf_form) {
     if (!$wf_post || !isset($_POST[$wf_form])) { continue; }
+    if ($wf_form === 'warn_save' && isset($_POST['meld_test'])) { continue; }     // 0.9.23: der Knopf Testmeldung (im selben Formular) speichert nicht
     $wf_alt = wd_config(); $wf_neu = $wf_alt; $wf_bean = array(); $wf_werte = array(); $wf_ziele_post = null;
     // 0.9.9: beide Zahlen aus der Karte zusammen ins Feld Breitengrad kopiert ("48.13726, 11.57549") - hier aufteilen. Beide mit
     // Dezimalpunkt, sonst wuerde eine einzelne Zahl mit Dezimalkomma ("51,3") still in 51 und 3 zerlegt.
@@ -213,6 +220,14 @@ foreach (array('save', 'quellen_save', 'zusatz_save', 'pv_save', 'warn_save', 'm
         if ($wf_f[1] !== 'g' && is_string($wf_w) && strlen($wf_w) < 200) { $wf_werte[$wf_k] = $wf_w; }
         list($wf_ok, $wf_v, $wf_g) = wd_wert_pruefen($wf_k, $wf_w);
         if (!$wf_ok) { $wf_fehler[] = wd_t('FELD.' . $wf_k) . ': ' . $wf_g; $wf_bean[] = $wf_k; continue; }
+        /* 0.9.23 (Entscheidung des Hausherrn 23.11.2026 "Nur gemeinsame Bereiche", Regeln/07): kein Praefix auf einem
+         * gemeinsamen Bereich unter haus/ - nur hier und beim Zurueckspielen, nicht in der Pruefung beim Lesen der
+         * Konfiguration: ein schon gespeichertes bleibt in Betrieb, der Reiter Test meldet es. */
+        if ($wf_k === 'mqtt_topic' && hb_bereich($wf_v) !== ''
+            && $wf_v !== (string) wd_config()['mqtt_topic']) {   // nur NEUE Eingaben: ein schon gespeichertes Praefix sperrt das Speichern
+            // des Reiters nicht (Regeln/07; Bauart Einspeisebremse 0.9.25)
+            $wf_fehler[] = sprintf(wd_t('HAUSBEREICH.FEHLER'), $wf_v, hb_bereich($wf_v)); $wf_bean[] = $wf_k; continue;
+        }
         $wf_neu[$wf_k] = $wf_v;
     }
     if ($wf_form === 'save') {
@@ -229,6 +244,8 @@ foreach (array('save', 'quellen_save', 'zusatz_save', 'pv_save', 'warn_save', 'm
         $wf_tm = array(); $wf_tb = array(); $wf_th = array();
         $wf_neu['tts'] = ansage_formular_lesen($_POST, $wf_alt['tts'], $wf_tm, $wf_tb, array('modi' => wd_ansage_modi(), 'ziele' => true, 'token_vor_ort' => true, 'aus_gewinnt' => true), wd_ansage_k(), $wf_th);
         list($wf_neu['ansage_regeln']) = ansage_regeln_formular($_POST, wd_ansage_regeln($wf_alt), array(), $wf_tm, $wf_tb, wd_ansage_k());
+        // 0.9.23: der Block 'Meldungen an SignalBot' (eine Beanstandung haelt das Speichern an, wie die Ansage)
+        $wf_neu['meldung'] = meld_formular_lesen($_POST, isset($wf_alt['meldung']) ? $wf_alt['meldung'] : null, wd_meld_anlaesse(), $wf_tm, $wf_tb, wd_meld_k(), wd_meld_haken_vorgabe());
         // 0.9.5: ein eingetipptes oder geloeschtes Sprechtoken ist nicht mehr vom Nachbarn; bis 0.9.4 ueberschrieb es der naechste Abgleich.
         $wf_neu['ansage_token_herkunft'] = ansage_token_herkunft_formular($_POST, isset($wf_alt['ansage_token_herkunft']) ? $wf_alt['ansage_token_herkunft'] : array());
         foreach ($wf_tm as $wf_t) { $wf_fehler[] = $wf_t['text']; }
@@ -732,6 +749,7 @@ $wf_hooks = array(
 );
 echo ansage_formular_html($wf_cfg['tts'], $wf_hooks + array('modi' => wd_ansage_modi(), 'ziele' => true, 'ziele_post' => (is_array($wf_x2) && ($wf_x2['form'] ?? '') === 'warn_save' && isset($wf_x2['ziele']['tts_ziel_art']) && is_array($wf_x2['ziele'])) ? $wf_x2['ziele'] : null), wd_ansage_k());
 echo ansage_regeln_html(wd_ansage_regeln($wf_cfg), array(), array(), $wf_hooks + array('token_vor_ort' => true), wd_ansage_k());
+echo wd_meld_form_html($wf_cfg);     // 0.9.23: Meldungen an SignalBot
 ?>
 <button data-role="none" class="sm-btn sm-b-aktion" type="submit"><?= wd_e(wd_t('TEXT.SPEICHERN')) ?></button>
 </form>

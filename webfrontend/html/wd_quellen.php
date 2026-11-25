@@ -808,6 +808,8 @@ function wd_lauf_sperrt($zwingen)
     // 0.9.10: PV-Prognose haus/pv (ab Werk aus), ebenso abgeschirmt.
     try { wd_pv_lauf($c, $werte['status/zaehler'], $jetzt); } catch (Throwable $e) { wd_log_einmal('pv', 'PV-Prognose haus/pv: ' . get_class($e) . ': ' . $e->getMessage()); }
     wd_ansagen($st, $c, $jetzt);
+    // 0.9.23: Meldungen an SignalBot (ab Werk aus), abgeschirmt wie die Hausthemen - ein Fehler haelt den Lauf nicht auf.
+    try { wd_meld_lauf($st, $c, $jetzt); } catch (Throwable $e) { wd_log_einmal('meld', 'Meldungen an SignalBot: ' . get_class($e) . ': ' . $e->getMessage()); }
     return $st;
 }
 
@@ -991,6 +993,9 @@ function wd_selbsttest()
     $zeile(wd_t('PRUEF.ZELLE'), trim((string) $c['warnzelle']) !== '' ? true : null, wd_t(trim((string) $c['warnzelle']) !== '' ? 'PRUEF.STANDORT_JA' : 'PRUEF.ZELLE_NEIN'));
     $zeile(wd_t('PRUEF.ANSAGE'), defined('ANSAGE_FASSUNG'), defined('ANSAGE_FASSUNG') ? ANSAGE_FASSUNG : '');
     // 0.9.8: Hausthemen haus/wetter - Vereinbarung offline, dann die letzte Sitzung am Broker
+    // 0.9.23: faellt das Themen-Praefix auf einen gemeinsamen Bereich unter haus/ (Regeln/07)?
+    $wd_hb = wd_pruef_praefix_haus($c);
+    $zeile(wd_t('HAUSBEREICH.F_TEST'), $wd_hb[0] === 1 ? true : ($wd_hb[0] === 0 ? false : null), $wd_hb[1]);
     list($hv_ok, $hv_t) = wd_haus_vertrag_pruefen();
     $zeile(wd_t('PRUEF.HAUS_VERTRAG'), $hv_ok, $hv_t);
     list($hz_ok, $hz_t) = wd_haus_testzeile($c);
