@@ -202,7 +202,7 @@ foreach (array('save', 'quellen_save', 'zusatz_save', 'pv_save', 'warn_save', 'm
     if (!$wf_post || !isset($_POST[$wf_form])) { continue; }
     if ($wf_form === 'warn_save' && isset($_POST['meld_test'])) { continue; }     // 0.9.23: der Knopf Testmeldung (im selben Formular) speichert nicht
     $wf_alt = wd_config(); $wf_neu = $wf_alt; $wf_bean = array(); $wf_werte = array(); $wf_ziele_post = null;
-    // 0.9.9: beide Zahlen aus der Karte zusammen ins Feld Breitengrad kopiert ("48.13726, 11.57549") - hier aufteilen. Beide mit
+    // 0.9.9: beide Zahlen aus der Karte zusammen ins Feld Breitengrad kopiert ("51.31833, 9.48960") - hier aufteilen. Beide mit
     // Dezimalpunkt, sonst wuerde eine einzelne Zahl mit Dezimalkomma ("51,3") still in 51 und 3 zerlegt.
     if ($wf_form === 'save' && isset($_POST['lat']) && is_string($_POST['lat'])
         && preg_match('/^\s*(-?\d{1,3}\.\d+)\s*[,;\/ ]\s*(-?\d{1,3}\.\d+)\s*\z/', $_POST['lat'], $wf_pm)
